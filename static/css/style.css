@@ -50,6 +50,24 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Dom.show() works by setting the hidden attribute, and the browser's own
+   rule for that -- [hidden] { display: none } -- is the weakest rule there
+   is: any class in this file that sets a display beats it. So an element
+   given display: flex somewhere below stays on screen after being hidden,
+   silently, and the only symptom is a stray empty bar or a row of buttons
+   under an empty state. Said once here with the force to win, so hiding
+   something is reliable no matter what else it is styled as. */
+[hidden] { display: none !important; }
+
+/* Nothing in this app wants the document to bounce. On iOS the rubber-band is
+   what makes a swipe that started on a card look like the whole page sliding
+   about, so it is refused at the root -- the one place Safari honours it for
+   the document itself. */
+html {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -59,24 +77,43 @@ body {
   color: var(--fg);
   background: var(--bg);
   -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
 }
 
-h1 { font-size: 1.35rem; margin: 0; }
+h1 { font-size: 1.15rem; margin: 0; }
 h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }
 p  { margin: 0 0 0.75rem; }
 
 .muted { color: var(--fg-muted); font-size: 0.9rem; }
 
+/* One row at every width. Stacking the title over the name cost about 50px
+   of a phone screen for two short strings, and that 50px comes straight off
+   the card below it. The safe-area padding is what keeps the bar's own
+   background under the status bar when the app is installed to the home
+   screen; in Safari the inset is zero and the rule costs nothing. */
 .app-header {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 1rem;
+  padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
   background: var(--card-bg);
   border-bottom: 1px solid var(--border);
 }
 
-.who { font-size: 0.9rem; color: var(--fg-muted); }
+/* A long display name gives way rather than pushing the title off the row. */
+.who {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 main {
   display: flex;
@@ -210,12 +247,9 @@ th { color: var(--fg-muted); font-size: 0.8rem; text-transform: uppercase; lette
 td .row-actions { display: flex; gap: 0.4rem; }
 
 @media (min-width: 40rem) {
-  .app-header {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.5rem;
-  }
+  /* Already a row at every width -- this block only buys back the room a
+     wider screen can spare. */
+  .app-header { align-items: center; padding: 0.9rem 1.5rem; }
 
   h1 { font-size: 1.5rem; }
 
@@ -246,13 +280,60 @@ td .row-actions { display: flex; gap: 0.4rem; }
    only in the min-width block at the end.
    =========================================================================== */
 
-/* The whole app sits above a fixed bottom tab bar. Padding rather than a
+/* The reading screens sit above a fixed bottom tab bar. Padding rather than a
    scroll container so the page scrolls natively -- a nested scroller on iOS
    loses momentum and breaks scroll-to-top. env() keeps content clear of the
    home indicator on a notched phone. */
 body.app {
-  padding-bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
   overscroll-behavior-y: contain;
+}
+
+:root { --tabbar-height: 3.5rem; }
+
+/* The training screen is the exception, and deliberately so: it is the one
+   screen with no reading to do and a gesture to protect.
+   
+   A page that can scroll is a page that will scroll, and on iOS the first
+   thing a vertical flick does is move the document -- which is the bug where
+   "the whole underlying base page moves instead". So this screen is sized to
+   exactly one viewport and given nothing to scroll. Everything then has to
+   fit, which is what the flexible card stack below is for.
+   
+   dvh rather than vh: on iOS, vh is the height with the browser toolbars
+   hidden, so a vh-sized layout is taller than what you can actually see and
+   the buttons end up underneath the toolbar. dvh tracks the real visible
+   height. The vh line before it is the fallback for anything older. */
+body.screen-train {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body.screen-train > main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* Sections are toggled with the hidden attribute, so the display they take
+   when shown has to be written without overruling that. */
+body.screen-train #signed-in:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Signed out, or out of words: short content that should sit in the middle
+   with room to scroll if a translation runs long. */
+body.screen-train #signed-out:not([hidden]) {
+  margin: var(--gap);
+  overflow-y: auto;
 }
 
 .tabbar {
@@ -263,11 +344,13 @@ body.app {
   background: var(--card-bg);
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .tabbar a {
   flex: 1 1 0;
-  min-height: 3.5rem;
+  min-height: var(--tabbar-height);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -277,6 +360,10 @@ body.app {
   color: var(--fg-muted);
   font-size: 0.7rem;
   letter-spacing: 0.01em;
+  /* Kills the double-tap-to-zoom delay on a tab, which otherwise makes the
+     bar feel a beat slower than the card above it. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tabbar a[aria-current="page"] { color: var(--accent); font-weight: 600; }
@@ -284,11 +371,43 @@ body.app {
 
 /* --- the card stack ------------------------------------------------------ */
 
+/* A grid rather than a column so that landscape can move the controls beside
+   the card without touching the markup -- see the short-screen block near the
+   bottom of this file. In portrait the single column behaves exactly as the
+   flex column it replaces. */
 .trainer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0 var(--gap);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "meta"
+    "stack"
+    "controls";
+  align-content: stretch;
+  gap: 0.6rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.6rem var(--gap) 0.6rem;
+  padding-left: calc(var(--gap) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--gap) + env(safe-area-inset-right, 0px));
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  /* Rows: the meta line and the controls take what they need, the stack takes
+     the rest. min-content on the controls is what stops a wrapped button
+     label from being clipped -- the row grows for it instead. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.deck-meta   { grid-area: meta; }
+.card-stack  { grid-area: stack; }
+#deck-controls { grid-area: controls; }
+
+/* The empty state replaces the card and the controls both, so it takes the
+   whole of the space they would have used. */
+#deck-empty:not([hidden]) {
+  grid-area: stack / stack / controls / controls;
+  align-self: center;
+  overflow-y: auto;
 }
 
 .deck-meta {
@@ -316,11 +435,18 @@ body.app {
 }
 
 /* The stack is a positioning context; cards are absolutely placed inside it
-   so the one behind stays put while the top one is dragged away. */
+   so the one behind stays put while the top one is dragged away.
+   
+   It takes whatever height is left over rather than asking for a fixed
+   amount. The old floor of 24rem was taller than what remained on a phone
+   once the header, the meta line, the buttons and the tab bar had been paid
+   for, and the overflow came out of the buttons at the bottom. A card that is
+   a little short is a much smaller problem than a button you cannot reach, so
+   the stack is the part that gives way. */
 .card-stack {
   position: relative;
-  min-height: 24rem;
-  height: min(58vh, 30rem);
+  min-height: 0;
+  align-self: stretch;
 }
 
 .swipe-card {
@@ -335,12 +461,21 @@ body.app {
   padding: 1.25rem;
   overflow: hidden;
 
-  /* The browser must not claim the gesture: without this, a vertical drag
-     scrolls the page and a horizontal one can trigger back-navigation, and
-     pointermove events stop arriving mid-swipe. */
+  /* The browser must not claim the gesture, anywhere on the card and for the
+     whole of the gesture: the moment Safari decides a drag is a scroll it
+     fires pointercancel, the swipe dies half-finished, and what moves instead
+     is the page. touch-action: none is what refuses that, and there is now no
+     exception to it -- scrolling the card's own overflowing text is done by
+     swipe.js from the same pointer stream (see takeScroll there) rather than
+     by handing the gesture back.
+     
+     The callout rule is the iOS-specific half of the same idea: without it a
+     slow press on a card raises the copy/look-up bubble mid-swipe. */
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   cursor: grab;
 }
 
@@ -410,7 +545,6 @@ body.app {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -427,25 +561,74 @@ body.app {
    separates a definition from its example. */
 .card-head > p, .card-body > p { margin: 0; }
 
-/* The card claims every gesture (touch-action: none, above) so that a swipe
-   is never stolen by the page. Text that does not fit is the one exception:
-   there, vertical panning goes back to the browser so the rest can be read.
-   The class is set from JS only when the content actually overflows, so a
-   card that fits keeps both of its vertical swipes. */
-.card-body.is-scrollable { touch-action: pan-y; }
+/* No scrollbar furniture on either half of the card. A classic scrollbar is
+   15px wide and takes that width out of the card's layout, which on the train
+   screen is enough to make a word that had just fitted wrap again -- and it
+   appeared for as little as a pixel of rounding in a line box. The fade below
+   is the affordance instead, and it costs no width. Wheel scrolling on a
+   desktop is unaffected; touch scrolling is swipe.js's job either way. */
+.card-head, .card-body { scrollbar-width: none; }
+.card-head::-webkit-scrollbar, .card-body::-webkit-scrollbar { width: 0; height: 0; }
 
+/* A scroller that has somewhere to go says so, so the reader knows the text
+   continues. The gesture that moves it is swipe.js's, not the browser's. */
+.card-body.is-scrollable,
+.card-head.is-scrollable {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent 100%);
+}
+.card-body.is-scrollable.is-at-end,
+.card-head.is-scrollable.is-at-end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* The font sizes here are the ceiling, not the answer. train.js measures each
+   card and scales the type down until it fits, because the alternative -- the
+   browser's own answer to a word wider than the card -- is a break in the
+   middle of the word, and a word split across two lines is exactly the thing
+   the reader is being asked to recognise.
+   
+   The wrap properties are the floor under that: once the type has been
+   scaled as far down as is still readable, a word that still does not fit is
+   hyphenated in preference to being cut at an arbitrary letter. */
 .card-word {
-  font-size: clamp(1.9rem, 9vw, 2.9rem);
+  font-size: clamp(1.5rem, 9vw, 2.9rem);
   font-weight: 650;
   line-height: 1.15;
   letter-spacing: -0.01em;
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  overflow-wrap: break-word;
 }
 
+/* While train.js measures how wide the word wants to be, it must not wrap --
+   a wrapped word reports the width of its box rather than of itself, and
+   there would be nothing to scale. Removed again as soon as the size is set,
+   unless the word genuinely fits on one line. */
+.card-word.is-measuring,
+.card-prompt-definition.is-measuring {
+  white-space: nowrap;
+  /* Without this the overflow is "visible" and scrollWidth is not reliably
+     the width the text wants -- which is the one number the measurement
+     depends on. */
+  overflow: hidden;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+  -webkit-hyphens: none;
+}
+
+.card-word.fits-one-line { white-space: nowrap; }
+
 .card-prompt-definition {
-  font-size: clamp(1.05rem, 4.6vw, 1.35rem);
+  font-size: clamp(0.95rem, 4.6vw, 1.35rem);
   line-height: 1.45;
   max-width: 28rem;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  overflow-wrap: break-word;
 }
 
 .card-pos {
@@ -548,26 +731,50 @@ body.app {
 
 /* --- action buttons ------------------------------------------------------ */
 
-.deck-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.5rem;
+#deck-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
+.deck-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+/* The generous side padding a normal button carries does not survive being
+   divided three ways on a 320px phone: "Don't know" wrapped to two lines and
+   the taller row was part of what pushed the whole set off the bottom of the
+   screen. The label is allowed to shrink a little instead, and min-width: 0
+   lets the grid track actually be as narrow as its share rather than as wide
+   as the longest word in it. */
 .deck-actions button {
-  min-height: 3.25rem;
+  min-height: 3rem;
+  min-width: 0;
+  padding: 0.4rem 0.3rem;
   border-radius: 12px;
-  font-size: 0.9rem;
+  font-size: clamp(0.72rem, 3.2vw, 0.9rem);
   font-weight: 600;
+  line-height: 1.15;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.1rem;
+  gap: 0.15rem;
   width: 100%;
+  /* No double-tap zoom, and no 300ms wait before the card moves. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.deck-actions .action-icon { font-size: 1.1rem; line-height: 1; }
+.deck-actions button > span:last-child {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.deck-actions .action-icon { font-size: 1.05rem; line-height: 1; }
 
 button.action-unknown { background: var(--error-bg); color: var(--error-fg); border: 1px solid transparent; }
 button.action-skip    { background: var(--warn-bg);  color: var(--warn-fg);  border: 1px solid transparent; }
@@ -575,11 +782,17 @@ button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    bor
 
 .deck-help {
   text-align: center;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
   color: var(--fg-muted);
   margin: 0;
 }
-.deck-help + .deck-help { margin-top: 0.15rem; }
+
+/* A device with no keyboard has no use for the keyboard line, and on a phone
+   that line was costing two rows of a screen that had already run out. */
+@media (pointer: coarse) {
+  .deck-help-keyboard { display: none; }
+}
 
 /* --- word lists ---------------------------------------------------------- */
 
@@ -616,7 +829,16 @@ button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    bor
 .word-row:last-child { border-bottom: none; }
 
 .word-row-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
-.word-row-word { font-size: 1.1rem; font-weight: 650; overflow-wrap: anywhere; }
+/* break-word rather than anywhere: both stop a long word widening the row,
+   but anywhere also cuts at whatever letter the edge lands on, and with
+   hyphens available there is a better place to break. */
+.word-row-word {
+  font-size: 1.1rem;
+  font-weight: 650;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
 .word-row-definition { font-size: 0.92rem; color: var(--fg-muted); line-height: 1.4; }
 
 .word-row-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
@@ -723,9 +945,115 @@ button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    bor
   }
   .tabbar a { flex-direction: row; gap: 0.4rem; font-size: 0.85rem; min-height: 3rem; }
 
-  .trainer { max-width: 34rem; margin: 0 auto; }
-  .card-stack { height: 26rem; }
+  /* On the train screen the bar is a flex child of a page that cannot
+     scroll, so sticking it is meaningless -- it takes its own row at the
+     bottom of the column, which is where the other screens put it too. */
+  /* width, because the auto side margins that centre the bar also switch off
+     the stretch a column flex item would otherwise get, and the bar collapses
+     onto its own labels. */
+  body.screen-train > .tabbar { position: static; flex: 0 0 auto; width: 100%; }
+
+  .trainer { max-width: 34rem; margin: 0 auto; padding-bottom: var(--gap); }
+  .card-stack { max-height: 26rem; }
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
   .word-row { flex-direction: row; align-items: center; justify-content: space-between; }
   .word-row-main { flex: 1 1 auto; min-width: 0; }
+}
+
+/* ---------------------------------------------------------------------------
+   Landscape on a phone
+   
+   About 390px of height for the whole app, which is less than the card alone
+   used to ask for. Two things buy that back: the tab bar turns on its side
+   and becomes a rail down the edge -- a landscape screen is short, not
+   narrow, so width is the cheap axis to spend -- and the answer buttons move
+   beside the card rather than under it.
+   
+   The height cap is what keeps this away from a tablet, which is in landscape
+   just as often and has room for the normal layout.
+   --------------------------------------------------------------------------- */
+@media (orientation: landscape) and (max-height: 32rem) {
+  :root { --rail-width: 4.25rem; }
+
+  body.app {
+    padding-bottom: 0;
+    padding-left: calc(var(--rail-width) + env(safe-area-inset-left, 0px));
+  }
+
+  /* A landscape phone is wider than 40rem, so the wide-screen block above has
+     already turned the bar into a strip across the top. Every property it set
+     is undone here rather than only the ones that differ -- position and
+     order in particular, or the rail lands back at the top of the page. */
+  .tabbar,
+  body.screen-train > .tabbar {
+    position: fixed;
+    order: 0;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: calc(var(--rail-width) + env(safe-area-inset-left, 0px));
+    max-width: none;
+    margin: 0;
+    flex-direction: column;
+    justify-content: center;
+    border-top: none;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .tabbar a {
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-height: 2.85rem;
+    font-size: 0.6rem;
+  }
+  .tabbar .tab-icon { font-size: 1rem; }
+
+  /* The tab bar already says which screen this is, and in landscape the row
+     it sits on is worth more than the repetition. */
+  body.screen-train > .app-header { display: none; }
+
+  .trainer {
+    grid-template-columns: minmax(0, 1fr) clamp(6.5rem, 22%, 10rem);
+    grid-template-areas:
+      "meta  meta"
+      "stack controls";
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.5rem;
+    max-width: none;
+    padding: 0.45rem var(--gap) 0.45rem var(--gap);
+    padding-right: calc(var(--gap) + env(safe-area-inset-right, 0px));
+  }
+
+  .swipe-card { padding: 0.9rem; }
+
+  #deck-controls { min-height: 0; }
+
+  /* One button per row, each taking an equal share of the column's height, so
+     the three of them fill the space beside the card instead of huddling at
+     the top of it. */
+  .deck-actions {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(2.6rem, 1fr);
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+
+  .deck-actions button { flex-direction: row; gap: 0.4rem; padding: 0.3rem 0.45rem; }
+
+  /* Both help lines go: the arrows are on the buttons, and a line of prose is
+     the first thing that should give when there are 390px to share. */
+  .deck-help { display: none; }
+}
+
+/* A short portrait screen -- an SE, or a phone with a large text size -- gets
+   the same trim without the two-column rearrangement. */
+@media (orientation: portrait) and (max-height: 40rem) {
+  .deck-help { display: none; }
 }

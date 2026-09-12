@@ -50,6 +50,7 @@ const Trainer = {
     this.bindButtons();
     this.bindKeyboard();
     this.bindResync();
+    this.bindRefit();
     await this.refill();
     this.renderControls();
     this.render();
@@ -138,9 +139,65 @@ const Trainer = {
     const top = this.buildCard( card , this.revealed , false );
     stack.appendChild( top );
     this.attachGestures( top );
-    this.markScrollable( top );
+
+    // Both cards, not just the live one: the card behind is visible through
+    // the gap around the top card, and a word wrapped there gives the trick
+    // away as surely as one wrapped in front.
+    const self = this;
+    Dom.all( ".swipe-card" , stack ).forEach( function ( node ) { self.fitCard( node ); } );
 
     this.renderProgress();
+  },
+
+  // Sizing a card is done after it is in the document, because every number
+  // it depends on -- how wide the card ended up, how much height the answer
+  // left for the prompt -- only exists once the layout has run.
+  fitCard( node ) {
+    const head = node.querySelector( ".card-head" );
+    const body = node.querySelector( ".card-body" );
+
+    // The word first and on its own terms: it is the one piece of text that
+    // should never wrap, so it is given the width before anything else asks
+    // for height.
+    Dom.all( ".card-word" , node ).forEach( function ( word ) { Fit.toOneLine( word ); } );
+
+    // Then the prompt, against whatever height the head actually has. A
+    // definition can wrap freely -- it is a sentence -- so this only stops it
+    // needing a scrollbar for the sake of a line or two.
+    const prompt = node.querySelector( ".card-prompt-definition" );
+    if ( prompt && head ) Fit.toContainer( prompt , head , 0.7 );
+
+    // Width was the interesting half of fitting the word, but not the only
+    // half: a phone on its side leaves a card barely taller than one line of
+    // display type, and a word that fits across but not down is clipped at
+    // the ascenders. Shrinking it again here costs nothing when there was
+    // room, because the loop exits on its first test.
+    const headWord = head ? head.querySelector( ".card-word" ) : null;
+    if ( headWord ) Fit.toContainer( headWord , head , 0.42 );
+
+    Fit.markScroll( head );
+    Fit.markScroll( body );
+  },
+
+  // Rotating the phone changes every measurement this screen depends on, and
+  // so does the iOS toolbar sliding away under a scroll. Re-measuring on the
+  // next frame rather than on the event itself means one pass per settled
+  // size instead of one per pixel of an animated rotation.
+  bindRefit() {
+    const self = this;
+    let pending = 0;
+    const refit = function () {
+      if ( pending ) window.cancelAnimationFrame( pending );
+      pending = window.requestAnimationFrame( function () {
+        pending = 0;
+        const stack = Dom.get( "card-stack" );
+        if ( !stack ) return;
+        Dom.all( ".swipe-card" , stack ).forEach( function ( node ) { self.fitCard( node ); } );
+      } );
+    };
+    window.addEventListener( "resize" , refit );
+    window.addEventListener( "orientationchange" , refit );
+    if ( window.visualViewport ) window.visualViewport.addEventListener( "resize" , refit );
   },
 
   // Running out of cards means something different when the deck is the
@@ -354,44 +411,40 @@ const Trainer = {
     into.appendChild( Dom.el( "p" , { class: "card-sense-example" , text: "“" + sense.example + "”" } ) );
   },
 
-  // A card gives the browser its vertical gestures back only where the text
-  // genuinely does not fit. The card sets touch-action: none so a swipe is
-  // never stolen by the page; lifting that on a body that fits would cost a
-  // swipe direction to enable scrolling with nothing to scroll.
-  markScrollable( node ) {
-    const body = node.querySelector( ".card-body" );
-    if ( !body ) return;
-    body.classList.toggle( "is-scrollable" , body.scrollHeight > body.clientHeight + 1 );
-  },
-
   // --- gestures ----------------------------------------------------------
 
   attachGestures( node ) {
     const self = this;
     Swipe.attach( node , {
       allows( direction ) { return !!self.outcomeFor[ direction ]; },
-      onMove( dx , dy ) { self.followFinger( node , dx , dy ); },
+      onMove( dx , dy , reach ) { self.followFinger( node , dx , dy , reach ); },
+      onScroll( scroller ) { Fit.markScroll( scroller ); },
       onCancel() { self.settle( node ); },
       onTap() { self.handleTap(); },
       onCommit( direction ) { self.handleOutcome( direction , node ); },
     } );
   },
 
-  followFinger( node , dx , dy ) {
+  // reach is how far this card has to travel on each axis to commit, which
+  // depends on how big the card ended up -- so the hints are read against the
+  // same number the release is judged by rather than a constant that only
+  // matched on the screen it was written for.
+  followFinger( node , dx , dy , reach ) {
     node.classList.remove( "is-animating" );
     // A small rotation tied to horizontal travel is what makes the card feel
     // like a physical object rather than a sliding rectangle.
     const tilt = dx / 18;
     node.style.transform = "translate(" + dx + "px, " + dy + "px) rotate(" + tilt + "deg)";
 
-    const progress = function ( value ) {
-      return Math.max( 0 , Math.min( 1 , Math.abs( value ) / Swipe.DISTANCE ) );
+    const progress = function ( value , distance ) {
+      return Math.max( 0 , Math.min( 1 , Math.abs( value ) / ( distance || Swipe.DISTANCE ) ) );
     };
+    const span = reach || { x: Swipe.DISTANCE , y: Swipe.DISTANCE };
     const strength = {
-      right: dx > 0 ? progress( dx ) : 0,
-      left:  dx < 0 ? progress( dx ) : 0,
-      up:    dy < 0 ? progress( dy ) : 0,
-      down:  dy > 0 ? progress( dy ) : 0,
+      right: dx > 0 ? progress( dx , span.x ) : 0,
+      left:  dx < 0 ? progress( dx , span.x ) : 0,
+      up:    dy < 0 ? progress( dy , span.y ) : 0,
+      down:  dy > 0 ? progress( dy , span.y ) : 0,
     };
 
     const self = this;

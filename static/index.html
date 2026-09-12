@@ -7,7 +7,13 @@
   <title data-i18n="app.title">&nbsp;</title>
   <link rel="stylesheet" href="/css/style.css" />
 </head>
-<body class="app">
+<!--
+  screen-train, not just app: the training screen is sized to exactly one
+  viewport and given nothing to scroll, so that a swipe on a card can never be
+  mistaken for a drag on the page underneath it. Every other screen is a
+  normal scrolling document and carries "app" alone.
+-->
+<body class="app screen-train">
   <!--
     No text is hardcoded here. Every visible string carries a data-i18n key
     that server/language resolves from language.yaml at runtime, so the copy
@@ -58,7 +64,9 @@
             </button>
           </div>
           <p class="deck-help" id="gesture-help"></p>
-          <p class="deck-help" data-i18n="train.keyboard_help"></p>
+          <!-- Hidden on a touch device by the stylesheet: two lines about the
+               arrow keys is a poor trade for two lines of a phone screen. -->
+          <p class="deck-help deck-help-keyboard" data-i18n="train.keyboard_help"></p>
         </div>
 
         <div id="deck-empty" class="empty-state" hidden>
@@ -82,6 +90,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/fit.js"></script>
   <script src="/js/swipe.js"></script>
   <script src="/js/train.js"></script>
 </body>
