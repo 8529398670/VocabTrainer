@@ -86,6 +86,17 @@ const Trainer = {
     return Number.isFinite( value ) ? value : 3000;
   },
 
+  // Whether this answer is allowed to leave without the forced reveal.
+  //
+  // The reveal exists to correct a wrong guess on the spot, and there is no
+  // wrong guess to correct when the answer was "I already know this" -- so
+  // someone clearing familiar words is only being held up by it. Off by
+  // default: the reveal is the point of the exercise for the other two
+  // answers, and this one is a deliberate opt-out.
+  excusedFromReveal( outcome ) {
+    return outcome === "known" && !!( this.settings && this.settings.known_skips_reveal );
+  },
+
   practising() {
     return !!this.settings && this.settings.practice_mode === "unknown_only";
   },
@@ -356,12 +367,12 @@ const Trainer = {
       head.appendChild( Dom.el( "p" , { class: "card-prompt-definition" , text: primary.definition } ) );
       if ( revealed ) {
         body.appendChild( Dom.el( "div" , { class: "card-divider" } ) );
-        body.appendChild( Dom.el( "p" , { class: "card-word" , text: card.word } ) );
+        body.appendChild( this.buildWord( card.word ) );
         if ( senses.length > 1 ) body.appendChild( this.buildSenses( senses.slice( 1 ) ) );
         this.appendExample( body , primary );
       }
     } else {
-      head.appendChild( Dom.el( "p" , { class: "card-word" , text: card.word } ) );
+      head.appendChild( this.buildWord( card.word ) );
       if ( revealed ) {
         body.appendChild( Dom.el( "div" , { class: "card-divider" } ) );
         body.appendChild( this.buildSenses( senses ) );
@@ -374,6 +385,26 @@ const Trainer = {
     const hint = this.buildFaceHint( revealed );
     if ( hint ) face.appendChild( hint );
     return face;
+  },
+
+  // The word, with the button that pronounces it.
+  //
+  // The button is built beside the word rather than anywhere else on the card
+  // for two reasons. Next to the word it is obvious what it will read out,
+  // which a control in a corner is not; and in "show the meaning, hide the
+  // word" mode it comes and goes with the word itself, so there is never a
+  // button sitting on a face-down card offering to speak the answer.
+  //
+  // The spacer opposite it is dead weight that earns its place. Without it
+  // the word-and-button pair is centred and the word is not, which is a
+  // visible half-centimetre of lean on every card.
+  buildWord( word ) {
+    const line = Dom.el( "div" , { class: "card-word-line" } );
+    const speak = Speech.button( word );
+    if ( speak ) line.appendChild( Dom.el( "span" , { class: "card-word-spacer" , attrs: { "aria-hidden": "true" } } ) );
+    line.appendChild( Dom.el( "p" , { class: "card-word" , text: word } ) );
+    if ( speak ) line.appendChild( speak );
+    return line;
   },
 
   // The pill at the bottom of the face: what the next tap will do. It sits
@@ -544,12 +575,13 @@ const Trainer = {
 
     const hold = this.revealHold();
 
-    // Three ways a card leaves immediately: a skip, which never reveals
+    // Four ways a card leaves immediately: a skip, which never reveals
     // because setting a word aside means not engaging with it at all; a card
-    // already turned over, whose answer has been read; and a hold of zero,
-    // which is the user saying they would rather not be shown the answer they
-    // did not ask for.
-    if ( outcome === "skip" || this.revealed || hold === 0 ) {
+    // already turned over, whose answer has been read; a hold of zero, which
+    // is the user saying they would rather not be shown the answer they did
+    // not ask for; and "I know it" when that answer has been excused from the
+    // reveal in the settings.
+    if ( outcome === "skip" || this.revealed || hold === 0 || this.excusedFromReveal( outcome ) ) {
       if ( top ) this.flyAway( top , direction );
       window.setTimeout( function () { self.advance(); } , 180 );
       return;
@@ -677,6 +709,14 @@ const Trainer = {
       // siblings would become unusable.
       const tag = event.target && event.target.tagName;
       if ( tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ) return;
+
+      // Nor from a button on the card itself -- the one that says the word
+      // out loud. Space and Enter are how a button is pressed from the
+      // keyboard, and taking them here first means the press is swallowed:
+      // preventDefault stops the click, and the card turns over instead of
+      // the word being read. The answer buttons below the card are not on it
+      // and are unaffected.
+      if ( tag === "BUTTON" && event.target.closest( ".swipe-card" ) ) return;
 
       const stack = Dom.get( "card-stack" );
       const top = stack ? stack.lastElementChild : null;

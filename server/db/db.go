@@ -31,6 +31,12 @@ const (
 	BucketLoginTokens = "login_tokens"
 	BucketMeta        = "meta"
 
+	// BucketInvites holds the shareable, seat-limited version of a login
+	// link -- one record per invite, keyed by its public id. Kept apart from
+	// BucketLoginTokens because the two answer different questions: a login
+	// token names a user who already exists, an invite creates one.
+	BucketInvites = "invites"
+
 	// BucketProgress holds one record per (user, word) the user has acted
 	// on. Keys are the user id as 8 big-endian bytes followed by the word,
 	// so every card belonging to one person sits in a contiguous run and
@@ -49,7 +55,7 @@ const (
 
 var bucketNames = []string{
 	BucketUsers , BucketSessions , BucketLoginTokens , BucketMeta ,
-	BucketProgress , BucketSettings , BucketDailyStats ,
+	BucketInvites , BucketProgress , BucketSettings , BucketDailyStats ,
 }
 
 type Store struct {

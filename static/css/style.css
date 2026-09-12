@@ -196,6 +196,26 @@ button.small {
   font-size: 0.85rem;
 }
 
+/* A download is a link, not a button. A real <a download> pointed at a
+   Content-Disposition response is the only thing that reliably saves a file
+   on a phone, so the element stays an anchor and is given the look of a
+   button here rather than the behaviour of one in JavaScript. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.button-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .notice {
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
@@ -558,8 +578,12 @@ body.screen-train #signed-out:not([hidden]) {
    margin is dead weight -- and in the head it is worse than that: the margin
    counts toward scrollHeight, which put a scrollbar on a box holding one
    word. Paragraphs nested inside a sense keep their margins; that is what
-   separates a definition from its example. */
-.card-head > p, .card-body > p { margin: 0; }
+   separates a definition from its example.
+
+   .card-word-line is in the list because the word is a paragraph inside it
+   rather than a direct child of either half, so it would otherwise be the one
+   line on the card still carrying the document default. */
+.card-head > p, .card-body > p, .card-word-line > p { margin: 0; }
 
 /* No scrollbar furniture on either half of the card. A classic scrollbar is
    15px wide and takes that width out of the card's layout, which on the train
@@ -621,6 +645,59 @@ body.screen-train #signed-out:not([hidden]) {
 }
 
 .card-word.fits-one-line { white-space: nowrap; }
+
+/* The word and the button that says it out loud, on one line.
+
+   --speak-size is shared by the button and by the empty span opposite it.
+   The pair is what keeps the word itself centred: centre a row holding a word
+   and a button and you have centred the pair, which leaves the word sitting
+   visibly off to one side on every card. */
+.card-word-line {
+  --speak-size: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Without this the word is a flex item at its max-content width and refuses
+   to shrink, so Fit measures a box as wide as the text it holds and finds
+   nothing to scale. min-width: auto is the default for a flex item and is the
+   whole of the problem. */
+.card-word-line > .card-word { min-width: 0; }
+
+.card-speak,
+.card-word-spacer {
+  flex: 0 0 var(--speak-size);
+  width: var(--speak-size);
+  height: var(--speak-size);
+}
+
+/* Deliberately under the 44px touch target the buttons elsewhere keep to.
+   Every pixel of this button is a pixel of the card that no longer swipes --
+   it has to swallow the gesture, or pressing it would answer the card -- so
+   a bigger target here is paid for out of the main interaction. */
+.card-speak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  /* The card refuses every gesture so that a swipe can never turn into a page
+     scroll (see .swipe-card). This one control asks for the browser's
+     ordinary fast tap back. */
+  touch-action: manipulation;
+}
+
+.card-speak svg { width: 1.15rem; height: 1.15rem; display: block; }
+.card-speak:hover { color: var(--fg); }
+.card-speak.is-speaking { color: var(--accent); border-color: var(--accent); }
 
 .card-prompt-definition {
   font-size: clamp(0.95rem, 4.6vw, 1.35rem);

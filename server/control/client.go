@@ -158,3 +158,20 @@ func ( client *Client ) SetDisabled( user_id uint64 , disabled bool ) ( user Use
 		SetDisabledRequest{ Disabled: disabled } , &user )
 	return
 }
+
+func ( client *Client ) ListInvites() ( invites []InviteResponse , err error ) {
+	invites = []InviteResponse{}
+	err = client.do( http.MethodGet , "/v1/invites" , nil , &invites )
+	return
+}
+
+func ( client *Client ) CreateInvite( label string , role string , max_uses int ) ( invite InviteResponse , err error ) {
+	err = client.do( http.MethodPost , "/v1/invites" ,
+		CreateInviteRequest{ Label: label , Role: role , MaxUses: max_uses } , &invite )
+	return
+}
+
+func ( client *Client ) RevokeInvite( invite_id string ) ( invite InviteResponse , err error ) {
+	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/invites/%s/revoke" , invite_id ) , nil , &invite )
+	return
+}

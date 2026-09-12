@@ -57,6 +57,13 @@ func ( handlers *Handlers ) Register( app *fiber.App ) {
 	app.Get( "/api/language" , handlers.GetLanguage )
 	app.Get( "/api/health" , handlers.GetHealth )
 
+	// Public: joining through an invite link. Both GETs are deliberately
+	// free of side effects -- a seat is spent only by the POST. See
+	// routes/invite.go, which is mostly about why.
+	app.Get( "/join/*" , handlers.JoinPage )
+	app.Get( "/api/invite/*" , handlers.GetInvite )
+	app.Post( "/api/invite/claim" , handlers.ClaimInvite )
+
 	// Any signed-in user.
 	account := app.Group( "/api" , handlers.Guard.RequireLogin )
 	account.Get( "/me" , handlers.GetMe )
@@ -81,6 +88,11 @@ func ( handlers *Handlers ) Register( app *fiber.App ) {
 	account.Get( "/stats" , handlers.GetStats )
 	account.Post( "/progress/reset" , handlers.PostResetProgress )
 
+	// The three word lists as a spreadsheet. A GET rather than a POST
+	// because it changes nothing and because a link is the only download
+	// that behaves itself on a phone -- see routes/export.go.
+	account.Get( "/export/words.xlsx" , handlers.GetWordsExport )
+
 	// Admin only: deciding who gets in. Note this is the *only* thing admin
 	// rights gate in the base template -- see architecture.md on defaulting
 	// new features to "any signed-in user".
@@ -89,6 +101,9 @@ func ( handlers *Handlers ) Register( app *fiber.App ) {
 	admin.Post( "/users" , handlers.CreateUser )
 	admin.Post( "/users/:user_id/reissue-login" , handlers.ReissueLogin )
 	admin.Post( "/users/:user_id/disabled" , handlers.SetUserDisabled )
+	admin.Get( "/invites" , handlers.ListInvites )
+	admin.Post( "/invites" , handlers.CreateInvite )
+	admin.Post( "/invites/:invite_id/revoke" , handlers.RevokeInvite )
 
 	// Catch-all static serving. Must be registered last -- it matches every
 	// remaining path, so anything added after this line never runs.

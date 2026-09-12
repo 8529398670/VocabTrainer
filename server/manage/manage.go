@@ -42,6 +42,9 @@ Usage:
   reissue-login   -user-id 3         fresh link for an existing user
   list-users                         id, name, role, status
   set-disabled    -user-id 3 -disabled=true
+  create-invite   -uses 3 -label "group chat"   one link, several joiners
+  list-invites                       live links and how many places are left
+  revoke-invite   -id <invite-id>    stop honouring a link already shared
   paths                              where this app keeps its state
 
 Reachable two ways, identical either way:
@@ -76,6 +79,9 @@ type backend interface {
 	ReissueLogin( user_id uint64 ) ( user control.UserResponse , err error )
 	SetDisabled( user_id uint64 , disabled bool ) ( user control.UserResponse , err error )
 	AnyAdminExists() ( result bool , err error )
+	ListInvites() ( invites []control.InviteResponse , err error )
+	CreateInvite( label string , role string , max_uses int ) ( invite control.InviteResponse , err error )
+	RevokeInvite( invite_id string ) ( invite control.InviteResponse , err error )
 	Close() ( err error )
 	Route() ( description string )
 }
@@ -125,6 +131,12 @@ func Run( arguments []string ) ( err error ) {
 		err = commandListUsers( back )
 	case "set-disabled":
 		err = commandSetDisabled( back , rest )
+	case "create-invite":
+		err = commandCreateInvite( back , cfg , rest )
+	case "list-invites":
+		err = commandListInvites( back )
+	case "revoke-invite":
+		err = commandRevokeInvite( back , rest )
 	default:
 		Usage()
 		err = fmt.Errorf( "unknown command %q" , command )
@@ -198,6 +210,21 @@ func ( b *controlBackend ) ReissueLogin( user_id uint64 ) ( user control.UserRes
 
 func ( b *controlBackend ) SetDisabled( user_id uint64 , disabled bool ) ( user control.UserResponse , err error ) {
 	user , err = b.client.SetDisabled( user_id , disabled )
+	return
+}
+
+func ( b *controlBackend ) ListInvites() ( invites []control.InviteResponse , err error ) {
+	invites , err = b.client.ListInvites()
+	return
+}
+
+func ( b *controlBackend ) CreateInvite( label string , role string , max_uses int ) ( invite control.InviteResponse , err error ) {
+	invite , err = b.client.CreateInvite( label , role , max_uses )
+	return
+}
+
+func ( b *controlBackend ) RevokeInvite( invite_id string ) ( invite control.InviteResponse , err error ) {
+	invite , err = b.client.RevokeInvite( invite_id )
 	return
 }
 
@@ -294,6 +321,41 @@ func ( b *directBackend ) SetDisabled( user_id uint64 , disabled bool ) ( user c
 
 func ( b *directBackend ) AnyAdminExists() ( result bool , err error ) {
 	result , err = models.AnyAdminExists( b.store )
+	return
+}
+
+func ( b *directBackend ) ListInvites() ( invites []control.InviteResponse , err error ) {
+	records , err := models.ListInvites( b.store )
+	if err != nil { return }
+	invites = []control.InviteResponse{}
+	for _ , record := range records {
+		invites = append( invites , control.NewInviteResponse( record.ID , record.Invite , "" ) )
+	}
+	return
+}
+
+// CreateInvite attributes the invite to user 0, which is nobody: a command
+// run from a shell has no signed-in admin behind it. Same reasoning as the
+// control handler -- recording a real id that did not do it would be worse
+// than recording none.
+func ( b *directBackend ) CreateInvite( label string , role string , max_uses int ) ( invite control.InviteResponse , err error ) {
+	invite_id , credential , err := models.IssueInvite( b.store , 0 , role , label , max_uses , b.cfg.InviteTTL )
+	if err != nil { return }
+	stored , err := models.GetInvite( b.store , invite_id )
+	if err != nil { return }
+	invite = control.NewInviteResponse( invite_id , stored , credential )
+	return
+}
+
+func ( b *directBackend ) RevokeInvite( invite_id string ) ( invite control.InviteResponse , err error ) {
+	if _ , get_err := models.GetInvite( b.store , invite_id ); get_err != nil {
+		err = fmt.Errorf( "no invite with id %s" , invite_id )
+		return
+	}
+	if err = models.RevokeInvite( b.store , invite_id ); err != nil { return }
+	refreshed , err := models.GetInvite( b.store , invite_id )
+	if err != nil { return }
+	invite = control.NewInviteResponse( invite_id , refreshed , "" )
 	return
 }
 
@@ -426,5 +488,95 @@ func commandSetDisabled( back backend , arguments []string ) ( err error ) {
 	user , err := back.SetDisabled( *user_id , *disabled )
 	if err != nil { return }
 	fmt.Printf( "user #%d (%s) disabled=%v\n" , user.ID , user.DisplayName , user.Disabled )
+	return
+}
+
+func commandCreateInvite( back backend , cfg *config.Config , arguments []string ) ( err error ) {
+	set := flag.NewFlagSet( "create-invite" , flag.ExitOnError )
+	uses := set.Int( "uses" , 3 , "how many people may join through this link (1-100)" )
+	role := set.String( "role" , models.RoleUser , "admin or user" )
+	label := set.String( "label" , "" , "a note to tell this link apart later" )
+	set.Parse( arguments )
+
+	if models.ValidRole( *role ) == false {
+		err = fmt.Errorf( "-role must be admin or user" )
+		return
+	}
+	if models.ValidInviteUses( *uses ) == false {
+		err = fmt.Errorf( "-uses must be between %d and %d" , models.InviteMinUses , models.InviteMaxUses )
+		return
+	}
+	if models.ValidInviteLabel( *label ) == false {
+		err = fmt.Errorf( "-label must be 80 characters or fewer" )
+		return
+	}
+
+	invite , err := back.CreateInvite( *label , *role , *uses )
+	if err != nil { return }
+	printInviteLink( cfg , invite )
+	return
+}
+
+// printInviteLink is the invite counterpart of bootstrap.PrintLoginLink, and
+// prints a path for the same reason: behind a reverse proxy the server does
+// not know its own public origin, and a confidently wrong host is worse than
+// an obviously partial one.
+func printInviteLink( cfg *config.Config , invite control.InviteResponse ) {
+	line := "------------------------------------------------------------------------"
+	fmt.Println( line )
+	fmt.Printf( "  INVITE LINK -- %d places, role %s\n" , invite.MaxUses , invite.Role )
+	if invite.Label != "" {
+		fmt.Printf( "  for: %s\n" , invite.Label )
+	}
+	fmt.Println( line )
+	fmt.Printf( "  /join/%s\n" , invite.Credential )
+	fmt.Println( line )
+	fmt.Printf( "  Good for %d joins, until %s. Prepend your real scheme and host:\n" ,
+		invite.MaxUses , invite.ExpiresAt.Format( "2006-01-02 15:04 MST" ) )
+	fmt.Printf( "    https://your-host.example.com/join/%s\n" , invite.Credential )
+	fmt.Println( "  Opening the link costs nothing -- a place is taken only when" )
+	fmt.Println( "  someone fills in the join form, so link previews are harmless." )
+	fmt.Println( "  It is not stored anywhere and cannot be shown again. If it spreads" )
+	fmt.Printf( "  further than intended: vocab-trainer manage revoke-invite -id %s\n" , invite.ID )
+	fmt.Println( line )
+}
+
+func commandListInvites( back backend ) ( err error ) {
+	invites , err := back.ListInvites()
+	if err != nil { return }
+	if len( invites ) == 0 {
+		fmt.Println( "No invite links. Create one with: manage create-invite -uses 3" )
+		return
+	}
+	fmt.Printf( "%-18s %-24s %-8s %-8s %-10s %s\n" , "ID" , "FOR" , "USED" , "ROLE" , "STATUS" , "EXPIRES" )
+	for _ , invite := range invites {
+		label := invite.Label
+		if label == "" {
+			label = "-"
+		}
+		fmt.Printf( "%-18s %-24s %-8s %-8s %-10s %s\n" ,
+			invite.ID , label ,
+			fmt.Sprintf( "%d/%d" , invite.UsedCount , invite.MaxUses ) ,
+			invite.Role , invite.Status ,
+			invite.ExpiresAt.Format( "2006-01-02 15:04" ) )
+	}
+	return
+}
+
+func commandRevokeInvite( back backend , arguments []string ) ( err error ) {
+	set := flag.NewFlagSet( "revoke-invite" , flag.ExitOnError )
+	invite_id := set.String( "id" , "" , "id of the invite, from list-invites" )
+	set.Parse( arguments )
+
+	if *invite_id == "" {
+		err = fmt.Errorf( "-id is required (see: manage list-invites)" )
+		return
+	}
+
+	invite , err := back.RevokeInvite( *invite_id )
+	if err != nil { return }
+	fmt.Printf( "invite %s withdrawn (%d of %d places had been taken)\n" ,
+		invite.ID , invite.UsedCount , invite.MaxUses )
+	fmt.Println( "Anyone still holding the link can no longer join. People who already joined keep their accounts." )
 	return
 }

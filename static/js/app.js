@@ -35,7 +35,13 @@ const App = {
     Dom.show( Dom.get( "admin-panel" ) , true );
     Dom.get( "create-user-form" ).addEventListener( "submit" , this.onCreateUser.bind( this ) );
     Dom.get( "copy-link-button" ).addEventListener( "click" , this.onCopyLink.bind( this ) );
+
+    Dom.show( Dom.get( "invite-panel" ) , true );
+    Dom.get( "create-invite-form" ).addEventListener( "submit" , this.onCreateInvite.bind( this ) );
+    Dom.get( "copy-invite-button" ).addEventListener( "click" , this.onCopyInvite.bind( this ) );
+
     await this.refreshUsers();
+    await this.refreshInvites();
   },
 
   async onRename( event ) {
@@ -83,19 +89,118 @@ const App = {
   },
 
   async onCopyLink() {
-    const value = Dom.get( "login-link-value" ).textContent;
+    await this.copyFrom( "login-link-value" , "copied-notice" );
+  },
+
+  // Shared by both copy buttons, so the secure-context fallback below has one
+  // implementation rather than one per kind of link.
+  async copyFrom( valueId , noticeId ) {
+    const source = Dom.get( valueId );
     try {
-      await navigator.clipboard.writeText( value );
-      Dom.flash( Dom.get( "copied-notice" ) );
+      await navigator.clipboard.writeText( source.textContent );
+      Dom.flash( Dom.get( noticeId ) );
     } catch ( error ) {
       // clipboard access needs a secure context, so plain-http local runs
       // land here. Selecting the text is a serviceable fallback.
       const range = document.createRange();
-      range.selectNodeContents( Dom.get( "login-link-value" ) );
+      range.selectNodeContents( source );
       const selection = window.getSelection();
       selection.removeAllRanges();
       selection.addRange( range );
     }
+  },
+
+  // --- invite links -----------------------------------------------------
+
+  async onCreateInvite( event ) {
+    event.preventDefault();
+    const label = Dom.get( "invite-label" ).value.trim();
+    const role = Dom.get( "invite-role" ).value;
+    const uses = parseInt( Dom.get( "invite-uses" ).value , 10 );
+    try {
+      const created = await Api.createInvite( label , role , uses );
+      this.showInviteLink( created );
+      Dom.get( "invite-label" ).value = "";
+      await this.refreshInvites();
+    } catch ( error ) {
+      this.showError( error.message );
+    }
+  },
+
+  // Like a login link, the server hands back a path and the browser supplies
+  // the origin -- behind a reverse proxy the server does not reliably know
+  // its own, and a confidently wrong host is worse than no host. The notice
+  // states the seat count, because an invite for 3 and an invite for 30 look
+  // identical once it is just a URL on the clipboard.
+  showInviteLink( created ) {
+    Dom.text( Dom.get( "invite-link-notice" ) ,
+      I18n.format( "invites.link_notice" , {
+        uses: created.max_uses,
+        days: Math.max( 1 , Math.round( created.expires_in_seconds / 86400 ) ),
+      } ) );
+    Dom.text( Dom.get( "invite-link-value" ) , window.location.origin + created.join_path );
+    Dom.show( Dom.get( "invite-link-box" ) , true );
+  },
+
+  async onCopyInvite() {
+    await this.copyFrom( "invite-link-value" , "invite-copied-notice" );
+  },
+
+  async refreshInvites() {
+    const body = Dom.get( "invites-table" ).querySelector( "tbody" );
+    let invites = [];
+    try {
+      invites = await Api.listInvites();
+    } catch ( error ) {
+      this.showError( error.message );
+      return;
+    }
+
+    Dom.clear( body );
+    Dom.show( Dom.get( "invites-empty" ) , invites.length === 0 );
+
+    invites.forEach( function ( invite ) {
+      // "used / total", which is the number an admin actually wants: how
+      // many places are still going, at a glance.
+      const uses = I18n.format( "invites.uses_value" , {
+        used: invite.used_count,
+        total: invite.max_uses,
+      } );
+      const status = invite.usable
+        ? I18n.get( "invites.status_live" )
+        : I18n.get( "invites.status_" + invite.reason );
+
+      // Only a live link can be withdrawn. One already full, expired or
+      // revoked has nothing left to take back, so the button is left off
+      // rather than shown doing nothing.
+      const actions = [];
+      if ( invite.usable ) {
+        actions.push( Dom.el( "button" , {
+          class: "secondary small",
+          text: I18n.get( "invites.revoke_button" ),
+          on: { click: async function () {
+            if ( window.confirm( I18n.get( "invites.revoke_confirm" ) ) === false ) return;
+            try {
+              await Api.revokeInvite( invite.id );
+              await App.refreshInvites();
+            } catch ( error ) { App.showError( error.message ); }
+          } },
+        } ) );
+      }
+
+      // createElement + textContent throughout: the label is admin-written,
+      // but it is still stored input and gets the same treatment as a
+      // display name. See the note at the top of dom.js.
+      body.appendChild( Dom.el( "tr" , { children: [
+        Dom.el( "td" , { text: invite.label || I18n.get( "invites.no_label" ) } ),
+        Dom.el( "td" , { text: uses } ),
+        Dom.el( "td" , { text: invite.role } ),
+        Dom.el( "td" , { text: status } ),
+        Dom.el( "td" , { children: [
+          Dom.el( "div" , { class: "row-actions" , children: actions } ),
+        ] } ),
+      ] } ) );
+    } );
   },
 
   async refreshUsers() {

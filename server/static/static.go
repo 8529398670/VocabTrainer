@@ -121,6 +121,31 @@ func ( server *Server ) Handler( c fiber.Ctx ) ( err error ) {
 		}
 	}
 
+	err = server.send( c , name )
+	return
+}
+
+// SendNamed serves one known file, for a route whose URL does not map onto
+// the filesystem at all.
+//
+// /join/<credential> is the case it exists for: the credential contains a
+// ".", so Handler would take it for a file extension and answer a genuine
+// 404 rather than falling back to the index. The route knows which page it
+// wants, so it says so.
+func ( server *Server ) SendNamed( c fiber.Ctx , name string ) ( err error ) {
+	resolved , ok := resolve( name )
+	if ok == false || server.isFile( resolved ) == false {
+		err = c.Status( fiber.StatusNotFound ).SendString( "Not found" )
+		return
+	}
+	err = server.send( c , resolved )
+	return
+}
+
+// send applies the caching rule and writes the body. Both entry points go
+// through here so that "how a file is served" -- the no-store header on
+// markup, the long max-age on binaries, the gzip -- has one implementation.
+func ( server *Server ) send( c fiber.Ctx , name string ) ( err error ) {
 	if alwaysFreshExtensions[ strings.ToLower( path.Ext( name ) ) ] == false {
 		c.Set( fiber.HeaderVary , "Accept-Encoding" )
 		err = c.SendFile( name , fiber.SendFile{

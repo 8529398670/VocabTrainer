@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title data-i18n="app.title">&nbsp;</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <!--
+    The one page a stranger sees, so it deliberately has no tab bar and does
+    not depend on shell.js: Shell.boot() branches on signed-in / signed-out,
+    and this page is neither. It is served for /join/<credential> by a route
+    rather than by path, because the credential contains a "." that the static
+    handler would read as a file extension.
+  -->
+</head>
+<body class="app">
+  <header class="app-header">
+    <div>
+      <h1 data-i18n="join.heading"></h1>
+    </div>
+  </header>
+
+  <main hidden id="main">
+    <!-- Exactly one of these four is revealed by join.js. -->
+
+    <!-- The invite is good: ask for a name and let them in. -->
+    <section id="join-form-card" class="card" hidden>
+      <p data-i18n="join.body"></p>
+      <p id="join-seats" class="muted"></p>
+      <form id="join-form" autocomplete="off">
+        <div class="field">
+          <label for="join-name" data-i18n="join.name_label"></label>
+          <input id="join-name" name="display_name" maxlength="80" required
+                 data-i18n-attr="placeholder:join.name_placeholder" />
+        </div>
+        <button type="submit" id="join-submit" data-i18n="join.submit_button"></button>
+      </form>
+    </section>
+
+    <!-- The link does not work. The reason is filled in from language.yaml. -->
+    <section id="join-refused-card" class="card" hidden>
+      <h2 data-i18n="join.refused_heading"></h2>
+      <p id="join-refused-reason" class="notice notice-warn"></p>
+    </section>
+
+    <!-- Already signed in: clicking the group link should not cost a seat. -->
+    <section id="join-already-card" class="card" hidden>
+      <h2 data-i18n="join.already_heading"></h2>
+      <p id="join-already-body"></p>
+      <p><a href="/" data-i18n="join.already_action"></a></p>
+    </section>
+
+    <!-- Claimed. A full reload follows, so this is only ever on screen
+         briefly -- but a blank page while the cookie is set is worse. -->
+    <section id="join-done-card" class="card" hidden>
+      <h2 data-i18n="join.done_heading"></h2>
+      <p data-i18n="join.done_body"></p>
+    </section>
+
+    <p id="error-banner" class="notice notice-error" hidden></p>
+  </main>
+
+  <script src="/js/dom.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/api.js"></script>
+  <!-- shell.js is loaded for applyStoredTheme() only; Shell.boot() is
+       deliberately not called here (see the note at the top of join.js). -->
+  <script src="/js/shell.js"></script>
+  <script src="/js/join.js"></script>
+</body>
+</html>

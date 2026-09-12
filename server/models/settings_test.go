@@ -122,3 +122,25 @@ func TestPracticeModeNormalises( t *testing.T ) {
 		t.Errorf( "practice mode = %q, wanted it kept" , settings.PracticeMode )
 	}
 }
+
+// The reveal is the point of the exercise, so excusing "I know it" from it is
+// an opt-in. A record saved before the field existed decodes it as false,
+// which is what makes the upgrade invisible to everyone who had one.
+func TestKnownSkipsRevealIsOffUnlessAskedFor( t *testing.T ) {
+	if DefaultSettings().KnownSkipsReveal {
+		t.Error( "the default excuses \"I know it\" from the reveal" )
+	}
+
+	stored := &Settings{ Schema: settingsSchema } // as an older record decodes
+	stored.normalise()
+	if stored.KnownSkipsReveal {
+		t.Error( "a record written before the field existed came back with it on" )
+	}
+
+	asked := DefaultSettings()
+	asked.KnownSkipsReveal = true
+	asked.normalise()
+	if asked.KnownSkipsReveal == false {
+		t.Error( "the choice was normalised away" )
+	}
+}

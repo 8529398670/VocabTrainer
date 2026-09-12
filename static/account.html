@@ -83,6 +83,60 @@
           </table>
         </div>
       </div>
+
+      <!--
+        Invite links. Separate card from the one above because the two are
+        different acts: that one names a person and lets exactly them in,
+        this one hands out a fixed number of places to whoever takes them.
+      -->
+      <div class="card" id="invite-panel" hidden>
+        <h2 data-i18n="invites.heading"></h2>
+        <p class="muted" data-i18n="invites.description"></p>
+
+        <form id="create-invite-form" autocomplete="off">
+          <div class="field">
+            <label for="invite-label" data-i18n="invites.label_label"></label>
+            <input id="invite-label" name="label" maxlength="80"
+                   data-i18n-attr="placeholder:invites.label_placeholder" />
+          </div>
+          <div class="field">
+            <label for="invite-uses" data-i18n="invites.uses_label"></label>
+            <input id="invite-uses" name="max_uses" type="number" min="1" max="100" value="3" required />
+          </div>
+          <div class="field">
+            <label for="invite-role" data-i18n="invites.role_label"></label>
+            <select id="invite-role" name="role">
+              <option value="user" data-i18n="admin.role_user"></option>
+              <option value="admin" data-i18n="admin.role_admin"></option>
+            </select>
+          </div>
+          <button type="submit" data-i18n="invites.create_button"></button>
+        </form>
+
+        <div id="invite-link-box" class="notice notice-link" hidden>
+          <p id="invite-link-notice"></p>
+          <code id="invite-link-value"></code>
+          <button id="copy-invite-button" class="secondary" data-i18n="admin.copy_button"></button>
+          <span id="invite-copied-notice" class="muted" data-i18n="admin.copied_notice" hidden></span>
+        </div>
+
+        <p id="invites-empty" class="muted" data-i18n="invites.empty" hidden></p>
+
+        <div class="table-scroll">
+          <table id="invites-table">
+            <thead>
+              <tr>
+                <th data-i18n="invites.table_label"></th>
+                <th data-i18n="invites.table_uses"></th>
+                <th data-i18n="invites.table_role"></th>
+                <th data-i18n="invites.table_status"></th>
+                <th data-i18n="admin.table_actions"></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <p id="error-banner" class="notice notice-error" hidden></p>

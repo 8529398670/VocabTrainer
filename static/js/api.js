@@ -25,6 +25,11 @@ const Api = {
     if ( !response.ok ) {
       const error = new Error( payload.error || response.statusText );
       error.status = response.status;
+      // Some endpoints add a short machine-readable code next to the
+      // message -- an invite that is full rather than merely wrong, say --
+      // so the caller can look the wording up in language.yaml instead of
+      // showing prose the server invented. See routes/invite.go.
+      error.reason = payload.reason || "";
       throw error;
     }
     return payload;
@@ -68,6 +73,24 @@ const Api = {
   reissueLogin( userId )       { return this.post( "/api/admin/users/" + userId + "/reissue-login" ); },
   setDisabled( userId , flag ) { return this.post( "/api/admin/users/" + userId + "/disabled" , { disabled: flag } ); },
 
+  // --- invite links -----------------------------------------------------
+  //
+  // inviteState is a GET and spends nothing, which is the point: the join
+  // page can ask about a link as often as it likes. claimInvite is the only
+  // call in the app that consumes a seat, and it goes through post() like
+  // every other write even though there is no session yet to carry a CSRF
+  // token -- the credential in the body is the capability.
+
+  inviteState( credential )    { return this.request( "/api/invite/" + credential ); },
+  claimInvite( credential , displayName ) {
+    return this.post( "/api/invite/claim" , { credential: credential , display_name: displayName } );
+  },
+  listInvites()                { return this.request( "/api/admin/invites" ); },
+  createInvite( label , role , maxUses ) {
+    return this.post( "/api/admin/invites" , { label: label , role: role , max_uses: maxUses } );
+  },
+  revokeInvite( inviteId )     { return this.post( "/api/admin/invites/" + inviteId + "/revoke" ); },
+
   // --- training ---------------------------------------------------------
 
   deck()                       { return this.request( "/api/deck?date=" + this.today() ); },
@@ -83,4 +106,10 @@ const Api = {
   levels()                     { return this.request( "/api/levels" ); },
   stats()                      { return this.request( "/api/stats?date=" + this.today() ); },
   resetProgress()              { return this.post( "/api/progress/reset" , { confirm: "reset" } ); },
+
+  // Not a request: the URL for the spreadsheet, handed to a link so the
+  // browser downloads it the ordinary way. Everything else here goes through
+  // fetch, which cannot save a file -- and a blob assembled in the page and
+  // clicked is exactly the thing iOS refuses.
+  exportUrl()                  { return "/api/export/words.xlsx?date=" + this.today(); },
 };

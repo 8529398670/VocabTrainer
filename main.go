@@ -210,10 +210,10 @@ func statusText( code int ) ( result string ) {
 	return
 }
 
-// startPurgeLoop drops expired sessions and login tokens on a timer. Neither
-// is a correctness issue -- expired records are already refused on read -- so
-// this runs quietly in the background purely to keep the bolt file from
-// growing forever.
+// startPurgeLoop drops expired sessions, login tokens and invites on a timer.
+// None of it is a correctness issue -- expired records are already refused on
+// read -- so this runs quietly in the background purely to keep the bolt file
+// from growing forever.
 func startPurgeLoop( store *db.Store ) ( stop chan struct{} ) {
 	stop = make( chan struct{} )
 	go func() {
@@ -226,8 +226,9 @@ func startPurgeLoop( store *db.Store ) ( stop chan struct{} ) {
 			case <-ticker.C:
 				sessions , _ := models.PurgeExpiredSessions( store )
 				tokens , _ := models.PurgeExpiredLoginTokens( store )
-				if sessions > 0 || tokens > 0 {
-					fmt.Printf( "[purge] removed %d expired sessions, %d expired login tokens\n" , sessions , tokens )
+				invites , _ := models.PurgeExpiredInvites( store )
+				if sessions > 0 || tokens > 0 || invites > 0 {
+					fmt.Printf( "[purge] removed %d expired sessions, %d expired login tokens, %d expired invites\n" , sessions , tokens , invites )
 				}
 			}
 		}

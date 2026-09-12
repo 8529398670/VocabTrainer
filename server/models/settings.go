@@ -95,6 +95,19 @@ type Settings struct {
 	// between is a duration in milliseconds.
 	RevealHoldMs int `json:"reveal_hold_ms"`
 
+	// KnownSkipsReveal exempts "I know it" from the reveal above. Answering
+	// a card you have not turned over normally shows the answer anyway, on
+	// the grounds that a wrong guess should be corrected on the spot -- but
+	// there is nothing to correct when the answer was "I already know this",
+	// and someone clearing familiar words is only being slowed down. The
+	// other two answers are unaffected: a skip never revealed anything, and
+	// not-known is the case the reveal exists for.
+	//
+	// Default false, which is the behaviour every existing record was saved
+	// under -- a field that was never stored decodes to its zero value, so
+	// nobody's app changes underneath them on upgrade.
+	KnownSkipsReveal bool `json:"known_skips_reveal"`
+
 	// AutoAdvanceMs is schema 0's version of RevealHoldMs, in which zero
 	// meant "wait for a tap". It is kept only so migrate() can read it, and
 	// is cleared -- and so omitted from the wire -- on the next save.

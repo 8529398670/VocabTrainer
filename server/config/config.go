@@ -97,6 +97,14 @@ type Config struct {
 	SessionTTL    time.Duration
 	LoginTokenTTL time.Duration
 
+	// InviteTTL is separate from LoginTokenTTL, and much longer, because the
+	// two are handed over differently. A login link is minted while the
+	// admin is talking to the person, so half an hour is generous. An invite
+	// is posted to a group chat and waits for people to notice it, which is
+	// measured in days -- expiring it in minutes would mean every link is
+	// dead by the time anyone taps it.
+	InviteTTL time.Duration
+
 	// SecretKey encrypts session cookie payloads and, when EncryptAtRest is
 	// on, every value written to bolt. Losing it means losing the database
 	// contents. See resolveSecretKey for where it comes from.
@@ -358,6 +366,7 @@ func Load() ( cfg *Config , err error ) {
 
 		SessionTTL:    r.seconds( "SESSION_TTL_SECONDS" , "session_ttl_seconds" , 14*24*time.Hour ),
 		LoginTokenTTL: r.seconds( "LOGIN_TOKEN_TTL_SECONDS" , "login_token_ttl_seconds" , 30*time.Minute ),
+		InviteTTL:     r.seconds( "INVITE_TTL_SECONDS" , "invite_ttl_seconds" , 7*24*time.Hour ),
 
 		EncryptAtRest: r.boolean( "ENCRYPT_AT_REST" , "encrypt_at_rest" , true ),
 

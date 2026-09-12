@@ -79,6 +79,11 @@
             <label for="reveal-hold" data-i18n="settings.reveal_hold_label"></label>
             <select id="reveal-hold"></select>
           </div>
+          <p class="muted" data-i18n="settings.known_no_reveal_help"></p>
+          <div class="setting-row">
+            <label for="known-skips-reveal" data-i18n="settings.known_no_reveal_label"></label>
+            <input class="switch" type="checkbox" id="known-skips-reveal" />
+          </div>
         </div>
 
         <div class="card">
@@ -129,6 +134,21 @@
           <p id="settings-saved" class="notice notice-ok" data-i18n="settings.saved_notice" hidden></p>
         </div>
       </form>
+
+      <!--
+        A real link with the download attribute, not a button that fetches:
+        Content-Disposition on a plain navigation is the one download that
+        behaves itself on every phone. settings.js only adds today's date to
+        the URL, so the file is named for the user's day rather than UTC's.
+      -->
+      <div class="card" id="export-card">
+        <h2 data-i18n="export.heading"></h2>
+        <p class="muted" data-i18n="export.body"></p>
+        <p>
+          <a id="export-xlsx" class="button-link" href="/api/export/words.xlsx"
+             download data-i18n="export.button"></a>
+        </p>
+      </div>
 
       <div class="card">
         <h2 data-i18n="sources.heading"></h2>

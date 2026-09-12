@@ -22,6 +22,7 @@
 # cookie_name               COOKIE_NAME
 # session_ttl_seconds       SESSION_TTL_SECONDS
 # login_token_ttl_seconds   LOGIN_TOKEN_TTL_SECONDS
+# invite_ttl_seconds        INVITE_TTL_SECONDS
 # encrypt_at_rest           ENCRYPT_AT_REST
 # control_socket            CONTROL_SOCKET
 # rate_limit_max            RATE_LIMIT_MAX
@@ -46,6 +47,11 @@ trust_proxy: false
 
 session_ttl_seconds: 1209600     # 14 days
 login_token_ttl_seconds: 1800    # 30 minutes
+
+# How long a shareable invite link stays good. Much longer than a login link
+# on purpose: a login link is handed over while you are talking to the person,
+# an invite link is posted somewhere and waits for people to notice it.
+invite_ttl_seconds: 604800       # 7 days
 
 rate_limit_max: 120
 rate_limit_window_seconds: 60

@@ -164,6 +164,9 @@ func ( server *Server ) routes() ( handler http.Handler ) {
 	mux.HandleFunc( "POST /v1/users" , server.handleCreateUser )
 	mux.HandleFunc( "POST /v1/users/{id}/login-token" , server.handleReissueLogin )
 	mux.HandleFunc( "POST /v1/users/{id}/disabled" , server.handleSetDisabled )
+	mux.HandleFunc( "GET /v1/invites" , server.handleListInvites )
+	mux.HandleFunc( "POST /v1/invites" , server.handleCreateInvite )
+	mux.HandleFunc( "POST /v1/invites/{id}/revoke" , server.handleRevokeInvite )
 	handler = mux
 	return
 }
@@ -227,6 +230,74 @@ func userResponse( user *models.User , credential string ) ( result UserResponse
 		Credential:  credential,
 	}
 	return
+}
+
+// InviteResponse is a stored invite plus what a caller would otherwise have
+// to recompute. Credential is set only by the endpoint that mints one, and is
+// the one moment it is ever visible -- only its hash is stored, so there is
+// no endpoint that could show it again.
+type InviteResponse struct {
+	ID         string    `json:"id"`
+	Label      string    `json:"label,omitempty"`
+	Role       string    `json:"role"`
+	MaxUses    int       `json:"max_uses"`
+	UsedCount  int       `json:"used_count"`
+	SeatsLeft  int       `json:"seats_left"`
+	Usable     bool      `json:"usable"`
+	Status     string    `json:"status"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	Credential string    `json:"credential,omitempty"`
+}
+
+// inviteStatus is the CLI-facing word for why a link will not work. It
+// mirrors the reason codes the web API returns, so the two describe the same
+// invite the same way.
+func inviteStatus( invite *models.Invite ) ( status string ) {
+	switch err := invite.Usable(); {
+	case err == nil:
+		status = "live"
+	case errors.Is( err , models.ErrInviteRevoked ):
+		status = "withdrawn"
+	case errors.Is( err , models.ErrInviteExpired ):
+		status = "expired"
+	case errors.Is( err , models.ErrInviteFull ):
+		status = "full"
+	default:
+		status = "unusable"
+	}
+	return
+}
+
+// NewInviteResponse is exported because manage's direct-database backend has
+// to produce the same shape when no server is running. Without it there would
+// be two conversions to keep in step, which is exactly the drift the backend
+// interface in that package exists to avoid.
+func NewInviteResponse( invite_id string , invite *models.Invite , credential string ) ( result InviteResponse ) {
+	result = inviteResponse( invite_id , invite , credential )
+	return
+}
+
+func inviteResponse( invite_id string , invite *models.Invite , credential string ) ( result InviteResponse ) {
+	result = InviteResponse{
+		ID:         invite_id,
+		Label:      invite.Label,
+		Role:       invite.Role,
+		MaxUses:    invite.MaxUses,
+		UsedCount:  invite.UsedCount,
+		SeatsLeft:  invite.SeatsLeft(),
+		Usable:     invite.Usable() == nil,
+		Status:     inviteStatus( invite ),
+		ExpiresAt:  invite.ExpiresAt,
+		Credential: credential,
+	}
+	return
+}
+
+// CreateInviteRequest is the body of POST /v1/invites.
+type CreateInviteRequest struct {
+	Label   string `json:"label"`
+	Role    string `json:"role"`
+	MaxUses int    `json:"max_uses"`
 }
 
 // CreateUserRequest is the body of POST /v1/users.
@@ -341,4 +412,76 @@ func ( server *Server ) handleSetDisabled( w http.ResponseWriter , r *http.Reque
 		return
 	}
 	writeJSON( w , http.StatusOK , userResponse( user , "" ) )
+}
+
+// handleListInvites and the two below it validate through the same models
+// helpers the web routes use, so an invite minted over the socket cannot be
+// shaped differently from one minted in the UI.
+func ( server *Server ) handleListInvites( w http.ResponseWriter , r *http.Request ) {
+	records , err := models.ListInvites( server.store )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	out := []InviteResponse{}
+	for _ , record := range records {
+		out = append( out , inviteResponse( record.ID , record.Invite , "" ) )
+	}
+	writeJSON( w , http.StatusOK , out )
+}
+
+// handleCreateInvite attributes the invite to user 0, which is nobody: a
+// command run from a shell has no signed-in admin behind it. The field is for
+// an audit trail, and recording a real id that did not do it would be worse
+// than recording none.
+func ( server *Server ) handleCreateInvite( w http.ResponseWriter , r *http.Request ) {
+	body := CreateInviteRequest{}
+	if decodeBody( w , r , &body ) == false { return }
+
+	if models.ValidRole( body.Role ) == false {
+		writeError( w , http.StatusBadRequest , "role must be admin or user" )
+		return
+	}
+	if models.ValidInviteUses( body.MaxUses ) == false {
+		writeError( w , http.StatusBadRequest , "number of uses must be between 1 and 100" )
+		return
+	}
+	if models.ValidInviteLabel( body.Label ) == false {
+		writeError( w , http.StatusBadRequest , "label must be 80 characters or fewer" )
+		return
+	}
+
+	invite_id , credential , err := models.IssueInvite(
+		server.store , 0 , body.Role , body.Label , body.MaxUses , server.cfg.InviteTTL )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	invite , err := models.GetInvite( server.store , invite_id )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusOK , inviteResponse( invite_id , invite , credential ) )
+}
+
+func ( server *Server ) handleRevokeInvite( w http.ResponseWriter , r *http.Request ) {
+	invite_id := r.PathValue( "id" )
+	if _ , err := models.GetInvite( server.store , invite_id ); err != nil {
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no invite with id %s" , invite_id ) )
+		return
+	}
+	if err := models.RevokeInvite( server.store , invite_id ); err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+
+	// Re-read rather than patching the copy in hand, so the response
+	// reflects what is actually stored.
+	invite , err := models.GetInvite( server.store , invite_id )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusOK , inviteResponse( invite_id , invite , "" ) )
 }

@@ -8,6 +8,8 @@ import (
 	strings "strings"
 	time "time"
 
+	bolt "go.etcd.io/bbolt"
+
 	db "vocabtrainer/server/db"
 	encryption "vocabtrainer/server/encryption"
 )
@@ -64,6 +66,42 @@ func CreateUser( store *db.Store , display_name string , role string ) ( user *U
 	}
 	err = store.Put( db.BucketUsers , encryption.Uint64ToBytes( user.ID ) , user )
 	if err != nil { user = nil }
+	return
+}
+
+// createUserTx is CreateUser's body running inside a transaction the caller
+// already holds.
+//
+// Claiming an invite has to create the account and spend the seat as one
+// indivisible step, and every Store helper -- Put, NextSequence -- opens a
+// write transaction of its own. Calling one from inside another would block
+// forever on bolt's single writer, so the one operation that needs both has
+// to be handed the transaction instead.
+//
+// Kept here rather than in invite.go so that "how a user record is made"
+// stays answerable from this file alone: the two paths must not drift.
+func createUserTx( store *db.Store , tx *bolt.Tx , display_name string , role string ) ( user *User , err error ) {
+	bucket := tx.Bucket( []byte( db.BucketUsers ) )
+	next_id , sequence_err := bucket.NextSequence()
+	if sequence_err != nil {
+		err = sequence_err
+		return
+	}
+	candidate := &User{
+		ID:          next_id,
+		DisplayName: strings.TrimSpace( display_name ),
+		Role:        role,
+		CreatedAt:   time.Now().UTC(),
+	}
+	encoded , encode_err := store.EncodeValue( candidate )
+	if encode_err != nil {
+		err = encode_err
+		return
+	}
+	if err = bucket.Put( encryption.Uint64ToBytes( candidate.ID ) , encoded ); err != nil {
+		return
+	}
+	user = candidate
 	return
 }
 

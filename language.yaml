@@ -25,7 +25,7 @@ nav:
 
 signed_out:
   heading: "You are not signed in"
-  body: "There is no signup form here on purpose. Ask an admin for a one-time login link."
+  body: "There is no signup form here on purpose. Ask an admin for a login link, or use an invite link if someone shared one."
   invalid_link: "That login link is invalid, expired, or has already been used. Ask for a new one."
 
 # The reading levels. 1-12 are US school grades; the last three are the
@@ -57,6 +57,11 @@ train:
   known_button: "I know it"
   unknown_button: "Don't know"
   skip_button: "Skip"
+  # The label on the button that reads a word aloud, used as its accessible
+  # name and its tooltip -- the button itself is a drawn speaker, not text.
+  # Empty removes the button, as everywhere else. It never appears on a device
+  # with no speech engine, whatever this says.
+  speak_label: "Pronounce"
   hint_known: "Known"
   hint_unknown: "Not known"
   hint_skip: "Skipped"
@@ -159,6 +164,8 @@ settings:
   reveal_hold_8000: "8 seconds"
   reveal_hold_15000: "15 seconds"
   reveal_hold_until: "Until I answer again"
+  known_no_reveal_label: "Except when I know it"
+  known_no_reveal_help: "With this on, \"I know it\" goes straight to the next card. There is nothing to correct when you already knew the word, and the other two answers still show the answer for the time above."
   daily_new_label: "New words per day"
   daily_new_unlimited: "No limit"
   batch_label: "Cards per run"
@@ -179,7 +186,7 @@ account:
 
 admin:
   heading: "Admin"
-  description: "Create an account by minting a login link. Send the link to the person; it works once."
+  description: "Name someone and mint a login link just for them. Send it to that person; it works once. For a link several people can use, see invite links below."
   new_name_label: "Name"
   new_name_placeholder: "Their name"
   new_role_label: "Role"
@@ -198,6 +205,84 @@ admin:
   reissue_button: "New link"
   disable_button: "Disable"
   enable_button: "Enable"
+
+# The join screen, behind an invite link. The only page someone who does not
+# have an account ever sees, so it says what is about to happen in full.
+join:
+  heading: "Join"
+  body: "You have been invited. Pick a name and you are in -- there is no password to choose."
+  # {seats} places remain of {total}.
+  seats_left: "{seats} of {total} places left on this link."
+  name_label: "Your name"
+  name_placeholder: "What should we call you?"
+  submit_button: "Join"
+  refused_heading: "This link will not work"
+  refused_invalid: "This invite link is not valid. Check you copied the whole thing, or ask whoever shared it for a new one."
+  refused_full: "This invite has already been used by as many people as it allows. Ask for a new link."
+  refused_expired: "This invite has expired. Ask for a new link."
+  refused_revoked: "This invite was withdrawn. Ask for a new link."
+  already_heading: "You are already signed in"
+  # {name} is the display name of the account already signed in here.
+  already_body: "You are signed in as {name}, so there is no need to use this invite -- it would make you a second, empty account."
+  already_action: "Go to the app"
+  done_heading: "Welcome"
+  done_body: "Setting up your account…"
+
+# Invite links: the multi-use counterpart to the one-time links above.
+invites:
+  heading: "Invite links"
+  description: "One link that works for a set number of people. Post it where the group already talks -- each of the first few to open it picks a name and gets an account."
+  label_label: "What is this link for?"
+  label_placeholder: "e.g. book club chat"
+  uses_label: "How many people can use it"
+  role_label: "Role"
+  create_button: "Create invite link"
+  # {uses} is the number of people it admits, {days} how long it lasts.
+  link_notice: "Share this link. The first {uses} people to open it can join, and it stops working after {days} days. It is shown once and cannot be recovered."
+  empty: "No invite links yet."
+  table_label: "For"
+  table_uses: "Used"
+  table_role: "Role"
+  table_status: "Status"
+  # {used} of {total} places taken.
+  uses_value: "{used} of {total}"
+  no_label: "(no note)"
+  status_live: "live"
+  status_full: "full"
+  status_expired: "expired"
+  status_revoked: "withdrawn"
+  revoke_button: "Withdraw"
+  revoke_confirm: "Withdraw this invite link? Anyone still holding it will not be able to join. People who already joined keep their accounts."
+
+# Downloading your words as a spreadsheet. Three sheets, one per list.
+#
+# The empty-key rule reaches further here than anywhere else in this file. An
+# empty column heading leaves that column out of the file, and an empty sheet
+# name leaves that sheet out -- so cutting the export down to a plain word
+# list, or to one list rather than three, is an edit here and nothing else.
+# Empty the heading and the whole feature disappears from Settings.
+export:
+  heading: "Export"
+  body: "Your three lists as a spreadsheet, one sheet each. Opens in Excel, Numbers, LibreOffice and Google Sheets."
+  button: "Download .xlsx"
+  # The start of the saved filename; the date is added to it. Anything that is
+  # not a letter, a digit, a dash, a dot or an underscore becomes a dash.
+  filename: "vocab-trainer-words"
+  sheet_unknown: "Not known"
+  sheet_known: "Known"
+  sheet_skipped: "Skipped"
+  column_word: "Word"
+  # The number sorts, the name reads. Delete whichever you do not want.
+  column_level: "Level"
+  column_level_name: "Level name"
+  column_pos: "Part of speech"
+  column_definition: "Definition"
+  column_example: "Example"
+  column_lapses: "Times missed"
+  column_reviews: "Reviews"
+  column_first_seen: "First seen"
+  column_last_seen: "Last seen"
+  column_due: "Due"
 
 sources:
   heading: "Where the words come from"

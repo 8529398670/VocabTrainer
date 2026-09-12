@@ -19,6 +19,18 @@ The first run prints a one-time login link. Open it — that is the entire
 account system; there is no signup form and no passwords. Admins mint further
 links from the Account screen or with `manage reissue-login`.
 
+There are two kinds of link. A **login link** names one person and works once
+— the original flow. An **invite link** is not tied to anyone and works a set
+number of times: mint one for, say, 3 people, post it in the group chat, and
+each of the first three to open it picks a name and gets an account. It stops
+working after that, and an admin can withdraw it earlier from the Account
+screen or with `manage revoke-invite`.
+
+Opening an invite link costs nothing — a place is taken only when someone
+submits the join form. That is deliberate: chat apps and mail scanners fetch
+links to build previews, and a link that was spent by being *looked at* would
+be empty before anyone tapped it.
+
 `SECURE_COOKIES=false` matters on plain `http://localhost`: a `Secure` cookie
 is silently dropped over http, so login appears to work and then does nothing.
 
@@ -63,6 +75,13 @@ Each card shows one side and hides the other. Which side is a setting:
 - **Show the meaning, hide the word** — harder, and the direction that helps
   with recall of the word itself.
 
+Every card carries a small speaker beside the word. Pressing it reads the word
+aloud through the device's own speech engine — the same one behind VoiceOver
+and TalkBack. Nothing is downloaded and nothing is sent anywhere; the word
+never leaves the device. The button is not drawn at all on a browser with no
+speech engine, and in "show the meaning, hide the word" mode it appears only
+once the word does, so it can never read out an answer you have not seen.
+
 Tap reveals the hidden side. Then:
 
 | Gesture | Key | Meaning |
@@ -83,6 +102,12 @@ the card leaves**, so a wrong guess is corrected on the spot. How long that
 answer stays up is a setting: three seconds by default, anything from not at
 all up to fifteen seconds, or until you answer again. A skip reveals nothing:
 the point of a skip is not to engage with the word at all.
+
+"I know it" can be excused from that reveal too, with a switch in Settings.
+There is no wrong guess to correct when you already knew the word, so someone
+clearing familiar ones is only being held up; with it on, "I know it" goes
+straight to the next card. Off by default, and the other two answers are
+unaffected.
 
 ### What a run is built from
 
@@ -120,6 +145,13 @@ Every swipe files the word somewhere, and every list can move it elsewhere:
 That is also the recovery path for a mis-swipe, which on a gesture-driven
 screen is not a rare event.
 
+All three come out as a spreadsheet from Settings — one `.xlsx` file, one
+sheet per list, with the definition, the level, and how the word has gone so
+far. It is written by `server/xlsx`, which is about two hundred lines of the
+standard library rather than a dependency: an .xlsx is a zip of XML, and the
+subset a word list needs is small enough that taking on a spreadsheet library
+would cost more in every binary than it saves here.
+
 Progress, settings and history are per user, stored server-side.
 
 ## Layout
@@ -128,10 +160,12 @@ Progress, settings and history are per user, stored server-side.
 main.go                  wiring, plus the manage/version subcommands
 cmd/builddata/           generates the word corpus from the raw sources
 server/corpus/           the embedded word list: loading, levels, sampling
-server/models/           user, session, login token, progress, settings, stats
+server/models/           user, session, login token, invite, progress, settings, stats
 server/routes/           one file per group of endpoints; routes.go is the map
+server/xlsx/             a minimal .xlsx writer, standard library only
 static/js/train.js       the card stack and the swipe interaction
 static/js/swipe.js       gesture recognition, no app logic
+static/js/speech.js      the device's own text-to-speech, behind one button
 language.yaml            every user-facing string in the app
 ```
 
@@ -149,7 +183,8 @@ the browser runs the files exactly as they sit on disk.
 
 Both print the first-run login link on first start — it is shown once and
 cannot be recovered. The binary is also the admin CLI: `./vocab-trainer
-manage list-users`, `manage reissue-login -user-id 1`, `manage paths`.
+manage list-users`, `manage reissue-login -user-id 1`,
+`manage create-invite -uses 3 -label "group chat"`, `manage paths`.
 
 State lives in one directory (`~/.config/vocab-trainer/`, or `APP_DIR`): the
 bolt database, a generated secret key, and an optional `config.yaml`. Back it

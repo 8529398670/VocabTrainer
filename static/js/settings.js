@@ -54,7 +54,22 @@ const Settings = {
     this.buildNumberSelect( "daily-new" , this.dailyNewChoices , "settings.daily_new_unlimited" );
     this.buildNumberSelect( "batch-size" , this.batchChoices , "" );
     this.fill();
+    this.showExport();
     this.bind();
+  },
+
+  // The download link, and whether there is one.
+  //
+  // The whole card goes when its heading does, rather than each label hiding
+  // itself and leaving an empty bordered box behind -- language.yaml's rule
+  // is "an empty key removes what it names", and what this key names is the
+  // feature. The href carries the browser's local date so the saved file is
+  // named for the user's day; the server only uses it for the filename, and
+  // sanity-checks it against its own clock either way.
+  showExport() {
+    Dom.show( Dom.get( "export-card" ) , I18n.get( "export.heading" ) !== "" );
+    const link = Dom.get( "export-xlsx" );
+    if ( link ) link.setAttribute( "href" , Api.exportUrl() );
   },
 
   buildLevelSelect() {
@@ -104,6 +119,7 @@ const Settings = {
     Dom.get( "reveal-hold" ).value = String( current.reveal_hold_ms );
     Dom.get( "daily-new" ).value = String( current.daily_new_limit );
     Dom.get( "batch-size" ).value = String( current.batch_size );
+    Dom.get( "known-skips-reveal" ).checked = !!current.known_skips_reveal;
     Dom.get( "show-examples" ).checked = !!current.show_examples;
     Dom.get( "haptics" ).checked = !!current.haptics;
     Dom.get( "theme-dark" ).checked = current.theme === "dark";
@@ -213,6 +229,7 @@ const Settings = {
       swipe_skip:      Dom.get( "swipe-skip" ).value,
       swipe_known:     Dom.get( "swipe-known" ).value,
       reveal_hold_ms:  Number( Dom.get( "reveal-hold" ).value ),
+      known_skips_reveal: Dom.get( "known-skips-reveal" ).checked,
       daily_new_limit: Number( Dom.get( "daily-new" ).value ),
       batch_size:      Number( Dom.get( "batch-size" ).value ),
       show_examples:   Dom.get( "show-examples" ).checked,
