@@ -1,0 +1,212 @@
+# Every piece of text the UI can show lives here, and nowhere else.
+#
+# Two rules make this useful rather than just indirection:
+#
+#   1. Translating or rewording the app is an edit to this file plus a
+#      restart. No HTML or JS changes, no rebuild.
+#   2. A key that is missing or empty ("") hides its element entirely. That
+#      is how you turn a label, a button, or a whole section off without
+#      touching the markup -- set it to "" and it disappears rather than
+#      rendering blank or showing a raw key name.
+#
+# This file is served to any visitor at /api/language, signed in or not, since
+# the signed-out page needs text too. Never put anything secret in it.
+
+app:
+  title: "Vocab Trainer"
+  tagline: "Sign in with a one-time link."
+
+nav:
+  train: "Train"
+  lists: "Words"
+  stats: "Progress"
+  settings: "Settings"
+  account: "Account"
+
+signed_out:
+  heading: "You are not signed in"
+  body: "There is no signup form here on purpose. Ask an admin for a one-time login link."
+  invalid_link: "That login link is invalid, expired, or has already been used. Ask for a new one."
+
+# The reading levels. 1-12 are US school grades; the last three are the
+# advanced band, where the word list is ranked rather than graded -- see the
+# note on advancedFloor in cmd/builddata.
+levels:
+  label: "Reading level"
+  tier_1: "Grade 1"
+  tier_2: "Grade 2"
+  tier_3: "Grade 3"
+  tier_4: "Grade 4"
+  tier_5: "Grade 5"
+  tier_6: "Grade 6"
+  tier_7: "Grade 7"
+  tier_8: "Grade 8"
+  tier_9: "Grade 9"
+  tier_10: "Grade 10"
+  tier_11: "Grade 11"
+  tier_12: "Grade 12"
+  tier_13: "Undergraduate"
+  tier_14: "Graduate"
+  tier_15: "Doctoral"
+  word_count: "words at this level"
+
+train:
+  heading: "Train"
+  tap_to_reveal: "Tap to reveal"
+  tap_to_continue: "Tap to continue"
+  known_button: "I know it"
+  unknown_button: "Don't know"
+  skip_button: "Skip"
+  hint_known: "Known"
+  hint_unknown: "Not known"
+  hint_skip: "Skipped"
+  empty_heading: "Nothing due right now"
+  empty_body: "You have cleared the words that were due and today's new words. Come back later, or raise the daily limit in Settings."
+  empty_action: "Open settings"
+  loading: "Loading words…"
+  # {known}, {unknown} and {skip} are filled in with the directions chosen in
+  # Settings, so this line stays true whichever way round they are.
+  gesture_help: "Swipe {known} if you know it, {unknown} if you don't, {skip} to skip. Or use the buttons."
+  keyboard_help: "Keyboard: the arrow keys match the swipes · space reveals."
+  practice_badge: "Not known only"
+  empty_practice_heading: "Nothing left to practise"
+  empty_practice_body: "Your not-known list is empty. Switch back to the normal deck in Settings to meet new words."
+  remaining: "left in this run"
+  new_badge: "new"
+  review_badge: "review"
+  seen_before: "seen before"
+  direction_up: "up"
+  direction_down: "down"
+  direction_left: "left"
+  direction_right: "right"
+
+lists:
+  heading: "Your words"
+  tab_unknown: "Not known"
+  tab_known: "Known"
+  tab_skipped: "Skipped"
+  empty_unknown: "No words here yet. Words you mark as not known collect here so you can review them."
+  empty_known: "No words here yet. Words you mark as known collect here."
+  empty_skipped: "No skipped words. Skip a card to set it aside without judging it."
+  action_known: "Know it"
+  action_unknown: "Don't know"
+  action_skip: "Skip"
+  action_unskip: "Unskip"
+  action_forget: "Forget"
+  count_one: "word"
+  count_many: "words"
+  search_placeholder: "Look up a word"
+  search_heading: "Search results"
+  search_clear: "Clear"
+  due_now: "due now"
+  due_in: "due in"
+  lapses_one: "missed once"
+  lapses_many: "times missed"
+  returned_to_new: "Back in the deck as a new word."
+
+stats:
+  heading: "Progress"
+  streak_label: "Day streak"
+  today_label: "Reviewed today"
+  known_label: "Known"
+  unknown_label: "Not known"
+  skipped_label: "Skipped"
+  due_label: "Due now"
+  total_label: "Words seen"
+  history_heading: "Last few weeks"
+  history_empty: "Nothing yet. Your daily activity will show up here."
+  level_label: "Current level"
+  reset_heading: "Reset progress"
+  reset_body: "This permanently deletes every word you have marked and your whole history. Type reset to confirm."
+  reset_placeholder: "reset"
+  reset_button: "Delete my progress"
+  reset_done: "Progress deleted."
+
+settings:
+  heading: "Settings"
+  level_heading: "Difficulty"
+  level_help: "Words are drawn from this level, with a few from just below and just above."
+  reveal_heading: "Card direction"
+  reveal_help: "Which side of the card starts face down."
+  reveal_definition: "Show the word, hide the meaning"
+  reveal_word: "Show the meaning, hide the word"
+  swipe_heading: "Swipe directions"
+  swipe_help: "Point each answer at whichever direction suits your hand. The three are always different; the direction left over does nothing."
+  swipe_unknown_label: "Don't know"
+  swipe_skip_label: "Skip"
+  swipe_known_label: "I know it"
+  swipe_up: "Swipe up"
+  swipe_down: "Swipe down"
+  swipe_left: "Swipe left"
+  swipe_right: "Swipe right"
+  # {direction} is the one direction no answer is bound to.
+  swipe_unused: "Swiping {direction} does nothing."
+  practice_heading: "What to practise"
+  practice_help: "Which words a run is built from."
+  practice_mixed: "Everything due, plus new words"
+  practice_unknown: "Only words I don't know"
+  pace_heading: "Pacing"
+  reveal_hold_heading: "Answering without revealing"
+  reveal_hold_help: "Swipe (or press a button) without turning the card over and the answer is shown anyway, so a wrong guess is corrected on the spot. This is how long it stays up."
+  reveal_hold_label: "Show the answer for"
+  reveal_hold_none: "Don't show it at all"
+  reveal_hold_500: "0.5 seconds"
+  reveal_hold_1000: "1 second"
+  reveal_hold_1500: "1.5 seconds"
+  reveal_hold_2000: "2 seconds"
+  reveal_hold_3000: "3 seconds"
+  reveal_hold_5000: "5 seconds"
+  reveal_hold_8000: "8 seconds"
+  reveal_hold_15000: "15 seconds"
+  reveal_hold_until: "Until I answer again"
+  daily_new_label: "New words per day"
+  daily_new_unlimited: "No limit"
+  batch_label: "Cards per run"
+  display_heading: "Display"
+  examples_label: "Show example sentences"
+  haptics_label: "Vibrate on swipe"
+  theme_label: "Dark mode"
+  save_button: "Save settings"
+  saved_notice: "Saved."
+
+account:
+  heading: "Account"
+  display_name_label: "Display name"
+  display_name_placeholder: "Your name"
+  save_button: "Save"
+  saved_notice: "Saved."
+  logout_button: "Log out"
+
+admin:
+  heading: "Admin"
+  description: "Create an account by minting a login link. Send the link to the person; it works once."
+  new_name_label: "Name"
+  new_name_placeholder: "Their name"
+  new_role_label: "Role"
+  role_user: "user"
+  role_admin: "admin"
+  create_button: "Create login link"
+  link_notice: "Send this one-time link. It is shown once and cannot be recovered."
+  copy_button: "Copy"
+  copied_notice: "Copied."
+  table_name: "Name"
+  table_role: "Role"
+  table_status: "Status"
+  table_actions: "Actions"
+  status_active: "active"
+  status_disabled: "disabled"
+  reissue_button: "New link"
+  disable_button: "Disable"
+  enable_button: "Enable"
+
+sources:
+  heading: "Where the words come from"
+  body: >-
+    Definitions come from Princeton WordNet. Reading levels are estimated from
+    age-of-acquisition ratings (Kuperman, Stadthagen-González & Brysbaert
+    2012) combined with word frequencies from OpenSubtitles and the Google Web
+    corpus. See ATTRIBUTION.md in the source for full citations and licences.
+
+errors:
+  generic: "Something went wrong. Please try again."
+  network: "Could not reach the server."

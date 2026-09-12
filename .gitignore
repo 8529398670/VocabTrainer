@@ -1,0 +1,25 @@
+# Runtime state -- never commit these.
+data/
+*.db
+.secret_key
+.env
+
+# Compiled output. Built by the Dockerfile, build.sh, or `go build`.
+#
+# The trailing negations matter: a bare "/server" also matches the server/
+# source directory, which silently keeps the entire backend out of the
+# repository. Ignore the binaries, then put the directories back.
+/server
+!/server/
+/manage
+!/manage/
+/vocab-trainer
+dist/
+
+# Raw linguistic sources, downloaded by scripts/fetch-corpus-sources.sh.
+# The generated corpus (server/corpus/data/words.jsonl.gz) IS committed; these
+# are not -- they are ~90MB and belong to their respective authors.
+/corpus-sources/
+
+# Stray binary from `go build ./cmd/builddata` at the repo root.
+/builddata

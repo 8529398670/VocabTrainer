@@ -1,0 +1,15 @@
+.git
+.gitignore
+data/
+*.db
+.secret_key
+.env
+*.md
+Dockerfile
+dockerRun.sh
+dist/
+
+# Raw linguistic downloads. The generated corpus in server/corpus/data/ is
+# what the build needs and is NOT excluded; these are the ~90MB of sources it
+# was made from, and they would be copied into every build context for nothing.
+corpus-sources/

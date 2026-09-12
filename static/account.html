@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title data-i18n="app.title">&nbsp;</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="app">
+  <!--
+    No text is hardcoded here. Every visible string carries a data-i18n key
+    that server/language resolves from language.yaml at runtime, so the copy
+    can change (or be removed entirely) without editing this file.
+  -->
+  <header class="app-header">
+    <div>
+      <h1 data-i18n="account.heading"></h1>
+    </div>
+    <div id="who-am-i" class="who"></div>
+  </header>
+
+  <main hidden id="main">
+    <section id="signed-out" class="card" hidden>
+      <h2 data-i18n="signed_out.heading"></h2>
+      <p data-i18n="signed_out.body"></p>
+      <p id="invalid-link" class="notice notice-warn" data-i18n="signed_out.invalid_link" hidden></p>
+    </section>
+
+    <section id="signed-in" hidden>
+      <div class="card">
+        <h2 data-i18n="account.heading"></h2>
+        <form id="rename-form" autocomplete="off">
+          <div class="field">
+            <label for="display-name" data-i18n="account.display_name_label"></label>
+            <input id="display-name" name="display_name" maxlength="80" required
+                   data-i18n-attr="placeholder:account.display_name_placeholder" />
+          </div>
+          <button type="submit" data-i18n="account.save_button"></button>
+        </form>
+        <p id="rename-saved" class="notice notice-ok" data-i18n="account.saved_notice" hidden></p>
+        <button id="logout-button" class="secondary" data-i18n="account.logout_button"></button>
+      </div>
+
+      <div class="card" id="admin-panel" hidden>
+        <h2 data-i18n="admin.heading"></h2>
+        <p class="muted" data-i18n="admin.description"></p>
+
+        <form id="create-user-form" autocomplete="off">
+          <div class="field">
+            <label for="new-name" data-i18n="admin.new_name_label"></label>
+            <input id="new-name" name="display_name" maxlength="80" required
+                   data-i18n-attr="placeholder:admin.new_name_placeholder" />
+          </div>
+          <div class="field">
+            <label for="new-role" data-i18n="admin.new_role_label"></label>
+            <select id="new-role" name="role">
+              <option value="user" data-i18n="admin.role_user"></option>
+              <option value="admin" data-i18n="admin.role_admin"></option>
+            </select>
+          </div>
+          <button type="submit" data-i18n="admin.create_button"></button>
+        </form>
+
+        <div id="login-link-box" class="notice notice-link" hidden>
+          <p data-i18n="admin.link_notice"></p>
+          <code id="login-link-value"></code>
+          <button id="copy-link-button" class="secondary" data-i18n="admin.copy_button"></button>
+          <span id="copied-notice" class="muted" data-i18n="admin.copied_notice" hidden></span>
+        </div>
+
+        <div class="table-scroll">
+          <table id="users-table">
+            <thead>
+              <tr>
+                <th data-i18n="admin.table_name"></th>
+                <th data-i18n="admin.table_role"></th>
+                <th data-i18n="admin.table_status"></th>
+                <th data-i18n="admin.table_actions"></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <p id="error-banner" class="notice notice-error" hidden></p>
+  </main>
+
+  <nav class="tabbar" id="tabbar" hidden></nav>
+
+  <script src="/js/dom.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

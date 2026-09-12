@@ -1,0 +1,731 @@
+/*
+  Mobile-first: the base rules describe a narrow screen, and the min-width
+  blocks at the bottom add what a wider one can afford. Writing it the other
+  way round means phones download and then override desktop layout, which is
+  the common cause of a "responsive" page that still feels wrong on a phone.
+
+  Light is the default and stays the default. Dark is opt-in via
+  <html data-theme="dark"> rather than prefers-color-scheme, so the app looks
+  the same for everyone unless someone deliberately switches it.
+*/
+
+:root {
+  color-scheme: light;
+
+  --fg: #16191d;
+  --fg-muted: #5b6472;
+  --bg: #f7f8fa;
+  --card-bg: #ffffff;
+  --border: #dfe3e8;
+  --accent: #1f5fd6;
+  --accent-fg: #ffffff;
+  --ok-bg: #e7f6ec;
+  --ok-fg: #14562c;
+  --warn-bg: #fdf3e2;
+  --warn-fg: #7a4b06;
+  --error-bg: #fdecec;
+  --error-fg: #8a1c1c;
+
+  --radius: 10px;
+  --gap: 1rem;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --fg: #e8eaed;
+  --fg-muted: #9aa3b0;
+  --bg: #101215;
+  --card-bg: #191c21;
+  --border: #2c3138;
+  --accent: #6ea0ff;
+  --accent-fg: #0b0d10;
+  --ok-bg: #12301d;
+  --ok-fg: #94d9ab;
+  --warn-bg: #33270f;
+  --warn-fg: #e8c37a;
+  --error-bg: #351717;
+  --error-fg: #f0a3a3;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px; /* 16px avoids iOS Safari zooming in on focused inputs */
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+h1 { font-size: 1.35rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }
+p  { margin: 0 0 0.75rem; }
+
+.muted { color: var(--fg-muted); font-size: 0.9rem; }
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.who { font-size: 0.9rem; color: var(--fg-muted); }
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+  max-width: 46rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+/* Stacked by default so every control is full width and comfortably tappable
+   on a phone; the wide-screen block below turns this into a row. Each
+   label+input pair is wrapped in .field so the two move together when the
+   layout changes -- labels stay visible at every width, since a placeholder
+   disappears the moment someone starts typing and is not a label. */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+input, select {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button {
+  /* 44px is the usual floor for a reliable touch target. */
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button.secondary {
+  color: var(--fg);
+  background: transparent;
+  border-color: var(--border);
+}
+
+button.small {
+  min-height: 36px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.notice {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.notice-ok    { background: var(--ok-bg);    color: var(--ok-fg); }
+.notice-warn  { background: var(--warn-bg);  color: var(--warn-fg); }
+.notice-error { background: var(--error-bg); color: var(--error-fg); }
+
+.notice-link {
+  background: var(--bg);
+  border: 1px dashed var(--accent);
+  padding: 0.75rem;
+  border-radius: 8px;
+}
+
+.notice-link code {
+  display: block;
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  /* A login link is long and unbreakable; without this it forces the whole
+     page to scroll sideways on a phone. */
+  word-break: break-all;
+}
+
+/* Tables do not reflow. Rather than fight that, let this one scroll inside
+   its own box so it never widens the page itself. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+th { color: var(--fg-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+td .row-actions { display: flex; gap: 0.4rem; }
+
+@media (min-width: 40rem) {
+  .app-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+  }
+
+  h1 { font-size: 1.5rem; }
+
+  /* Enough room now to put a short form on one line. align-items: end keeps
+     the button's baseline with the inputs rather than their labels. */
+  form {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+  }
+
+  /* Only now that the form is a row does a horizontal flex basis mean
+     anything -- setting it on the column layout would stretch each field to
+     12rem tall instead of wide. */
+  .field { flex: 1 1 12rem; }
+
+  form > button { flex: 0 0 auto; }
+
+  td, th { white-space: normal; }
+}
+
+/* ===========================================================================
+   Vocab Trainer screens
+
+   Everything below is this app rather than the template. The ordering rule
+   from the top of the file still holds: phone layout first, wider screens
+   only in the min-width block at the end.
+   =========================================================================== */
+
+/* The whole app sits above a fixed bottom tab bar. Padding rather than a
+   scroll container so the page scrolls natively -- a nested scroller on iOS
+   loses momentum and breaks scroll-to-top. env() keeps content clear of the
+   home indicator on a notched phone. */
+body.app {
+  padding-bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+  overscroll-behavior-y: contain;
+}
+
+.tabbar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 20;
+  display: flex;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tabbar a {
+  flex: 1 1 0;
+  min-height: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  text-decoration: none;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+}
+
+.tabbar a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.tabbar .tab-icon { font-size: 1.15rem; line-height: 1; }
+
+/* --- the card stack ------------------------------------------------------ */
+
+.trainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 var(--gap);
+}
+
+.deck-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  min-height: 1.5rem;
+}
+
+.deck-progress {
+  flex: 1 1 auto;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.deck-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms ease-out;
+}
+
+/* The stack is a positioning context; cards are absolutely placed inside it
+   so the one behind stays put while the top one is dragged away. */
+.card-stack {
+  position: relative;
+  min-height: 24rem;
+  height: min(58vh, 30rem);
+}
+
+.swipe-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(16, 18, 21, 0.09);
+  padding: 1.25rem;
+  overflow: hidden;
+
+  /* The browser must not claim the gesture: without this, a vertical drag
+     scrolls the page and a horizontal one can trigger back-navigation, and
+     pointermove events stop arriving mid-swipe. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+
+.swipe-card.is-behind {
+  transform: scale(0.955) translateY(0.6rem);
+  box-shadow: none;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* Applied only while the card is settling back or flying off, so dragging
+   itself stays pinned to the finger with no lag. */
+.swipe-card.is-animating { transition: transform 220ms ease-out, opacity 220ms ease-out; }
+.swipe-card.is-gone { opacity: 0; }
+
+/* The three bands of a card. The top and the foot are where the swipe hints
+   live: giving each hint a band of its own is what keeps one from being drawn
+   over the badges or the definition while a card is being dragged. The foot
+   is only in the DOM when a downward swipe is bound to something. */
+.card-top {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 1.9rem;
+}
+
+.card-foot {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 1.9rem;
+}
+
+/* The face is split so the prompt cannot be scrolled out of the card.
+   A single centred box that overflows pushes its first line up through the
+   top edge, where no amount of scrolling brings it back -- so the prompt sits
+   in a head that never scrolls, and only the answer below it does. */
+.card-face {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+.card-head {
+  /* Never shrinks: the prompt is the one thing that must always be fully
+     readable, so the answer below it gives ground instead. The cap is the
+     exception -- an unusually long prompt scrolls inside its own half rather
+     than taking the whole card. */
+  flex: 0 0 auto;
+  max-height: 60%;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.card-body {
+  /* Shrinks rather than grows, so a short answer stays centred under the
+     prompt instead of being pinned to the top of an empty box. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.card-body:empty { display: none; }
+
+/* The face spaces its parts with flex gaps, so a paragraph's default bottom
+   margin is dead weight -- and in the head it is worse than that: the margin
+   counts toward scrollHeight, which put a scrollbar on a box holding one
+   word. Paragraphs nested inside a sense keep their margins; that is what
+   separates a definition from its example. */
+.card-head > p, .card-body > p { margin: 0; }
+
+/* The card claims every gesture (touch-action: none, above) so that a swipe
+   is never stolen by the page. Text that does not fit is the one exception:
+   there, vertical panning goes back to the browser so the rest can be read.
+   The class is set from JS only when the content actually overflows, so a
+   card that fits keeps both of its vertical swipes. */
+.card-body.is-scrollable { touch-action: pan-y; }
+
+.card-word {
+  font-size: clamp(1.9rem, 9vw, 2.9rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.card-prompt-definition {
+  font-size: clamp(1.05rem, 4.6vw, 1.35rem);
+  line-height: 1.45;
+  max-width: 28rem;
+}
+
+.card-pos {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--fg-muted);
+}
+
+.card-divider {
+  /* flex: 0 0 auto or a one-pixel flex item is shrunk to nothing by its
+     siblings and the line never appears. */
+  flex: 0 0 auto;
+  width: 3rem;
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0;
+}
+
+.card-senses { width: 100%; max-width: 30rem; text-align: left; }
+
+.card-sense { margin-bottom: 0.7rem; }
+.card-sense:last-child { margin-bottom: 0; }
+.card-sense-definition { font-size: 1rem; line-height: 1.45; }
+.card-sense-example {
+  font-size: 0.9rem;
+  color: var(--fg-muted);
+  font-style: italic;
+  margin-top: 0.2rem;
+}
+
+.card-hidden-hint {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+}
+
+.card-badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  min-height: 1.4rem;
+}
+
+.badge {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  background: var(--bg);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+.badge-new { background: var(--ok-bg); color: var(--ok-fg); border-color: transparent; }
+.badge-review { background: var(--warn-bg); color: var(--warn-fg); border-color: transparent; }
+
+/* Direction hints fade in as the card is dragged. Opacity is set from JS in
+   step with the drag distance, so they act as a readout of how far is far
+   enough rather than appearing all at once. */
+/* Sized and centred to sit wholly inside its band. The tilt these used to
+   carry is gone deliberately: a rotated box is taller than its band, and the
+   corner that stuck out landed on the word below it. The card itself still
+   rotates as it is dragged, which is where the physicality comes from. */
+.swipe-hint {
+  position: absolute;
+  top: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  padding: 0.1rem 0.6rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Where a hint sits follows the direction it belongs to; what colour it is
+   follows the outcome. The two are separate because the user decides which
+   direction carries which outcome. */
+.swipe-hint[data-direction="left"]  { left: 0;   transform: translateY(-50%); }
+.swipe-hint[data-direction="right"] { right: 0;  transform: translateY(-50%); }
+.swipe-hint[data-direction="up"]    { left: 50%; transform: translate(-50%, -50%); }
+.swipe-hint[data-direction="down"]  { left: 50%; transform: translate(-50%, -50%); }
+
+.swipe-hint-known   { background: var(--ok-bg);    color: var(--ok-fg); }
+.swipe-hint-unknown { background: var(--error-bg); color: var(--error-fg); }
+.swipe-hint-skip    { background: var(--warn-bg);  color: var(--warn-fg); }
+
+/* The badges share the top band with three of the hints, so train.js hands
+   the band over from one to the other partway through a drag -- see the
+   handover in followFinger. No transition here: both are a readout of how far
+   the finger has travelled, and a readout that lags is misleading. */
+.badge-practice { background: var(--warn-bg); color: var(--warn-fg); border-color: transparent; }
+
+/* --- action buttons ------------------------------------------------------ */
+
+.deck-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.deck-actions button {
+  min-height: 3.25rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  width: 100%;
+}
+
+.deck-actions .action-icon { font-size: 1.1rem; line-height: 1; }
+
+button.action-unknown { background: var(--error-bg); color: var(--error-fg); border: 1px solid transparent; }
+button.action-skip    { background: var(--warn-bg);  color: var(--warn-fg);  border: 1px solid transparent; }
+button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid transparent; }
+
+.deck-help {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  margin: 0;
+}
+.deck-help + .deck-help { margin-top: 0.15rem; }
+
+/* --- word lists ---------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: var(--gap);
+}
+
+.tabs button {
+  flex: 1 1 0;
+  min-height: 2.5rem;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0 0.4rem;
+}
+.tabs button[aria-selected="true"] { background: var(--card-bg); color: var(--fg); box-shadow: 0 1px 3px rgba(16,18,21,0.12); }
+
+.word-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.word-row:last-child { border-bottom: none; }
+
+.word-row-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.word-row-word { font-size: 1.1rem; font-weight: 650; overflow-wrap: anywhere; }
+.word-row-definition { font-size: 0.92rem; color: var(--fg-muted); line-height: 1.4; }
+
+.word-row-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.word-row-actions button {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  width: auto;
+}
+
+.list-count { font-size: 0.85rem; color: var(--fg-muted); margin-bottom: 0.5rem; }
+
+/* --- progress ------------------------------------------------------------ */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+  margin-bottom: var(--gap);
+}
+
+.stat {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.8rem;
+  text-align: center;
+}
+.stat-value { font-size: 1.6rem; font-weight: 680; line-height: 1.1; }
+.stat-label { font-size: 0.76rem; color: var(--fg-muted); margin-top: 0.15rem; }
+
+/* A bar chart of daily activity. Deliberately plain divs: a charting library
+   would be the only dependency in the app, and this needs one axis and no
+   interaction. */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 7rem;
+  padding-top: 0.5rem;
+  overflow-x: auto;
+}
+.chart-bar {
+  flex: 0 0 auto;
+  width: 9px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.chart-bar.is-empty { background: var(--border); }
+
+/* --- forms --------------------------------------------------------------- */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child { border-bottom: none; }
+.setting-row label { margin: 0; }
+
+.switch { flex: 0 0 auto; width: auto; min-height: 1.6rem; }
+
+.choice-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.choice:has(input:checked) { border-color: var(--accent); background: var(--bg); }
+.choice input { flex: 0 0 auto; margin-top: 0.2rem; width: auto; min-height: 0; }
+.choice span { font-size: 0.92rem; }
+
+.empty-state {
+  text-align: center;
+  color: var(--fg-muted);
+  padding: 2rem 1rem;
+}
+.empty-state h2 { color: var(--fg); }
+
+@media (min-width: 40rem) {
+  body.app { padding-bottom: 0; padding-top: 0; }
+
+  /* On a wide screen the tab bar reads better at the top, where it lines up
+     with the header rather than floating over a mostly empty page. */
+  .tabbar {
+    position: sticky;
+    top: 0;
+    bottom: auto;
+    border-top: none;
+    border-bottom: 1px solid var(--border);
+    max-width: 48rem;
+    margin: 0 auto;
+  }
+  .tabbar a { flex-direction: row; gap: 0.4rem; font-size: 0.85rem; min-height: 3rem; }
+
+  .trainer { max-width: 34rem; margin: 0 auto; }
+  .card-stack { height: 26rem; }
+  .stat-grid { grid-template-columns: repeat(3, 1fr); }
+  .word-row { flex-direction: row; align-items: center; justify-content: space-between; }
+  .word-row-main { flex: 1 1 auto; min-width: 0; }
+}

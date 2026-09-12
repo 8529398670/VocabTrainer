@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title data-i18n="app.title">&nbsp;</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="app">
+  <!--
+    No text is hardcoded here. Every visible string carries a data-i18n key
+    that server/language resolves from language.yaml at runtime, so the copy
+    can change (or be removed entirely) without editing this file.
+  -->
+  <header class="app-header">
+    <div>
+      <h1 data-i18n="settings.heading"></h1>
+    </div>
+    <div id="who-am-i" class="who"></div>
+  </header>
+
+  <main hidden id="main">
+    <section id="signed-out" class="card" hidden>
+      <h2 data-i18n="signed_out.heading"></h2>
+      <p data-i18n="signed_out.body"></p>
+      <p id="invalid-link" class="notice notice-warn" data-i18n="signed_out.invalid_link" hidden></p>
+    </section>
+
+    <section id="signed-in" hidden>
+      <form id="settings-form" autocomplete="off">
+        <div class="card">
+          <h2 data-i18n="settings.level_heading"></h2>
+          <div class="field">
+            <label for="level-select" data-i18n="levels.label"></label>
+            <select id="level-select"></select>
+          </div>
+          <p class="muted" id="level-count"></p>
+          <p class="muted" data-i18n="settings.level_help"></p>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.reveal_heading"></h2>
+          <p class="muted" data-i18n="settings.reveal_help"></p>
+          <div class="choice-list">
+            <label class="choice">
+              <input type="radio" name="reveal_mode" value="definition_hidden" />
+              <span data-i18n="settings.reveal_definition"></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="reveal_mode" value="word_hidden" />
+              <span data-i18n="settings.reveal_word"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.swipe_heading"></h2>
+          <p class="muted" data-i18n="settings.swipe_help"></p>
+          <div class="field">
+            <label for="swipe-unknown" data-i18n="settings.swipe_unknown_label"></label>
+            <select id="swipe-unknown"></select>
+          </div>
+          <div class="field">
+            <label for="swipe-skip" data-i18n="settings.swipe_skip_label"></label>
+            <select id="swipe-skip"></select>
+          </div>
+          <div class="field">
+            <label for="swipe-known" data-i18n="settings.swipe_known_label"></label>
+            <select id="swipe-known"></select>
+          </div>
+          <p class="muted" id="swipe-unused"></p>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.reveal_hold_heading"></h2>
+          <p class="muted" data-i18n="settings.reveal_hold_help"></p>
+          <div class="field">
+            <label for="reveal-hold" data-i18n="settings.reveal_hold_label"></label>
+            <select id="reveal-hold"></select>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.practice_heading"></h2>
+          <p class="muted" data-i18n="settings.practice_help"></p>
+          <div class="choice-list">
+            <label class="choice">
+              <input type="radio" name="practice_mode" value="mixed" />
+              <span data-i18n="settings.practice_mixed"></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="practice_mode" value="unknown_only" />
+              <span data-i18n="settings.practice_unknown"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.pace_heading"></h2>
+          <div class="field">
+            <label for="daily-new" data-i18n="settings.daily_new_label"></label>
+            <select id="daily-new"></select>
+          </div>
+          <div class="field">
+            <label for="batch-size" data-i18n="settings.batch_label"></label>
+            <select id="batch-size"></select>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="settings.display_heading"></h2>
+          <div class="setting-row">
+            <label for="show-examples" data-i18n="settings.examples_label"></label>
+            <input class="switch" type="checkbox" id="show-examples" />
+          </div>
+          <div class="setting-row">
+            <label for="haptics" data-i18n="settings.haptics_label"></label>
+            <input class="switch" type="checkbox" id="haptics" />
+          </div>
+          <div class="setting-row">
+            <label for="theme-dark" data-i18n="settings.theme_label"></label>
+            <input class="switch" type="checkbox" id="theme-dark" />
+          </div>
+        </div>
+
+        <div class="card">
+          <button type="submit" data-i18n="settings.save_button"></button>
+          <p id="settings-saved" class="notice notice-ok" data-i18n="settings.saved_notice" hidden></p>
+        </div>
+      </form>
+
+      <div class="card">
+        <h2 data-i18n="sources.heading"></h2>
+        <p class="muted" data-i18n="sources.body"></p>
+      </div>
+    </section>
+
+    <p id="error-banner" class="notice notice-error" hidden></p>
+  </main>
+
+  <nav class="tabbar" id="tabbar" hidden></nav>
+
+  <!--
+    Plain scripts in dependency order. No bundler, no modules that need a
+    build step: each file adds one global and the browser runs them as-is.
+  -->
+  <script src="/js/dom.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title data-i18n="app.title">&nbsp;</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="app">
+  <!--
+    No text is hardcoded here. Every visible string carries a data-i18n key
+    that server/language resolves from language.yaml at runtime, so the copy
+    can change (or be removed entirely) without editing this file.
+  -->
+  <header class="app-header">
+    <div>
+      <h1 data-i18n="lists.heading"></h1>
+    </div>
+    <div id="who-am-i" class="who"></div>
+  </header>
+
+  <main hidden id="main">
+    <section id="signed-out" class="card" hidden>
+      <h2 data-i18n="signed_out.heading"></h2>
+      <p data-i18n="signed_out.body"></p>
+      <p id="invalid-link" class="notice notice-warn" data-i18n="signed_out.invalid_link" hidden></p>
+    </section>
+
+    <section id="signed-in" hidden>
+      <div class="card">
+        <div class="tabs" id="list-tabs" role="tablist"></div>
+
+        <form id="search-form" autocomplete="off">
+          <div class="field">
+            <input id="search-input" type="search" maxlength="40"
+                   data-i18n-attr="placeholder:lists.search_placeholder" />
+          </div>
+        </form>
+
+        <p class="list-count" id="list-count"></p>
+        <div id="word-list"></div>
+        <p class="empty-state" id="list-empty" hidden></p>
+      </div>
+    </section>
+
+    <p id="error-banner" class="notice notice-error" hidden></p>
+  </main>
+
+  <nav class="tabbar" id="tabbar" hidden></nav>
+
+  <!--
+    Plain scripts in dependency order. No bundler, no modules that need a
+    build step: each file adds one global and the browser runs them as-is.
+  -->
+  <script src="/js/dom.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/lists.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+# Optional configuration file.
+#
+# Copy this to your app directory to use it -- it is NOT read from the project
+# root. The app directory is printed at startup ("[state] ..."), and defaults
+# to:
+#
+#   ~/.config/vocab-trainer/config.yaml       (or $XDG_CONFIG_HOME/vocab-trainer/)
+#   /app/data/config.yaml                        (in the container)
+#
+#   cp config.example.yaml ~/.config/vocab-trainer/config.yaml
+#
+# Every key here has an environment-variable equivalent, and the environment
+# always wins -- so a container can override a file baked into an image, and
+# a one-off run can override both. Nothing here is required; the defaults are
+# a complete configuration on their own.
+#
+# Key                       Environment variable
+# ------------------------  --------------------------
+# port                      PORT
+# host                      HOST
+# secure_cookies            SECURE_COOKIES
+# cookie_name               COOKIE_NAME
+# session_ttl_seconds       SESSION_TTL_SECONDS
+# login_token_ttl_seconds   LOGIN_TOKEN_TTL_SECONDS
+# encrypt_at_rest           ENCRYPT_AT_REST
+# control_socket            CONTROL_SOCKET
+# rate_limit_max            RATE_LIMIT_MAX
+# rate_limit_window_seconds RATE_LIMIT_WINDOW_SECONDS
+# body_limit_bytes          BODY_LIMIT_BYTES
+# trust_proxy               TRUST_PROXY
+# proxy_header              PROXY_HEADER
+# project_name              PROJECT_NAME
+# static_dir                STATIC_DIR
+# language_file             LANGUAGE_FILE
+# secret_key                SECRET_KEY
+
+port: 8080
+
+# false ONLY for plain http://localhost. A Secure cookie is silently dropped
+# over http, so login appears to succeed and then does nothing.
+secure_cookies: true
+
+# Turn on only when a reverse proxy you control is actually in front --
+# otherwise clients can forge X-Forwarded-For and evade the rate limiter.
+trust_proxy: false
+
+session_ttl_seconds: 1209600     # 14 days
+login_token_ttl_seconds: 1800    # 30 minutes
+
+rate_limit_max: 120
+rate_limit_window_seconds: 60
+
+# Encrypts every value written to the database. Losing the key makes the data
+# permanently unreadable, so back up secret.key alongside app.db.
+encrypt_at_rest: true
+
+# Leave this out. When unset, a key is generated once into secret.key (mode
+# 0600) in the app directory, which is what lets a portable binary just run.
+# Setting it here puts a secret in a file you might commit; prefer the
+# SECRET_KEY environment variable if you need to supply it explicitly.
+# secret_key: ""
+
+# Let other processes reach the database through the running server, over a
+# unix socket in the app directory (control.sock, mode 0600). This is what
+# makes `manage` work while the server is up -- bolt allows only one process
+# to open the database, so without it every admin command needs the server
+# stopped first.
+#
+# Turning it off is a deliberate choice, not a hardening win: the socket is
+# reachable only by something that can already read secret.key and app.db
+# sitting beside it.
+#control_socket: true

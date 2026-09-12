@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title data-i18n="app.title">&nbsp;</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="app">
+  <!--
+    No text is hardcoded here. Every visible string carries a data-i18n key
+    that server/language resolves from language.yaml at runtime, so the copy
+    can change (or be removed entirely) without editing this file.
+  -->
+  <header class="app-header">
+    <div>
+      <h1 data-i18n="train.heading"></h1>
+    </div>
+    <div id="who-am-i" class="who"></div>
+  </header>
+
+  <main hidden id="main">
+    <section id="signed-out" class="card" hidden>
+      <h2 data-i18n="signed_out.heading"></h2>
+      <p data-i18n="signed_out.body"></p>
+      <p id="invalid-link" class="notice notice-warn" data-i18n="signed_out.invalid_link" hidden></p>
+    </section>
+
+    <section id="signed-in" hidden>
+      <div class="trainer">
+        <div class="deck-meta" id="deck-meta">
+          <span id="deck-remaining"></span>
+          <!-- Only shown while the deck is filtered to the not-known list, so
+               a short run is never mistaken for having run out of words. -->
+          <span id="deck-practice" class="badge badge-practice" hidden></span>
+          <div class="deck-progress"><span id="deck-progress-fill"></span></div>
+          <span id="deck-counts"></span>
+        </div>
+
+        <!-- Cards are built by train.js; this is only the stage they sit on. -->
+        <div class="card-stack" id="card-stack"></div>
+
+        <div id="deck-controls">
+          <!-- train.js reorders these to match the chosen swipe directions. -->
+          <div class="deck-actions" id="deck-actions">
+            <button type="button" id="action-unknown" class="action-unknown">
+              <span class="action-icon" aria-hidden="true">←</span>
+              <span data-i18n="train.unknown_button"></span>
+            </button>
+            <button type="button" id="action-skip" class="action-skip">
+              <span class="action-icon" aria-hidden="true">↑</span>
+              <span data-i18n="train.skip_button"></span>
+            </button>
+            <button type="button" id="action-known" class="action-known">
+              <span class="action-icon" aria-hidden="true">→</span>
+              <span data-i18n="train.known_button"></span>
+            </button>
+          </div>
+          <p class="deck-help" id="gesture-help"></p>
+          <p class="deck-help" data-i18n="train.keyboard_help"></p>
+        </div>
+
+        <div id="deck-empty" class="empty-state" hidden>
+          <h2 id="deck-empty-heading"></h2>
+          <p id="deck-empty-body"></p>
+          <p><a href="/settings.html" data-i18n="train.empty_action"></a></p>
+        </div>
+      </div>
+    </section>
+
+    <p id="error-banner" class="notice notice-error" hidden></p>
+  </main>
+
+  <nav class="tabbar" id="tabbar" hidden></nav>
+
+  <!--
+    Plain scripts in dependency order. No bundler, no modules that need a
+    build step: each file adds one global and the browser runs them as-is.
+  -->
+  <script src="/js/dom.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script src="/js/swipe.js"></script>
+  <script src="/js/train.js"></script>
+</body>
+</html>
