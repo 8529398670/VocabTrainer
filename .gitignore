@@ -3,7 +3,7 @@ data/
 *.db
 .secret_key
 .env
-
+*.DS_Store
 # Compiled output. Built by the Dockerfile, build.sh, or `go build`.
 #
 # The trailing negations matter: a bare "/server" also matches the server/
