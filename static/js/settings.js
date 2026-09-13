@@ -178,6 +178,9 @@ const Settings = {
     Dom.all( 'input[name="practice_mode"]' ).forEach( function ( input ) {
       input.checked = input.value === current.practice_mode;
     } );
+    Dom.all( 'input[name="scoring_mode"]' ).forEach( function ( input ) {
+      input.checked = input.value === current.scoring_mode;
+    } );
 
     const self = this;
     this.swipeFields.forEach( function ( entry ) {
@@ -187,6 +190,35 @@ const Settings = {
 
     this.showLevelCount();
     this.showUnusedDirection();
+    this.showModeNotes();
+  },
+
+  // The two notes that only apply to one choice each. Both follow
+  // language.yaml's rule rather than only the radio: an empty key removes the
+  // note, and unhiding an element whose text was removed would put an empty
+  // paragraph on screen.
+  //
+  // They track the radio rather than what is saved, like the theme switch and
+  // the voice preview below: a note that only appeared after saving would be
+  // explaining a decision the user has already made.
+  showModeNotes() {
+    const picked = function ( name ) {
+      const input = Dom.all( 'input[name="' + name + '"]' ).find( function ( option ) { return option.checked; } );
+      return input ? input.value : "";
+    };
+    const note = function ( id , key , when ) {
+      const element = Dom.get( id );
+      if ( !element ) return;
+      Dom.show( element , when && I18n.get( key ) !== "" );
+    };
+
+    // The unused-direction line and the graded note answer the same question
+    // -- what the directions actually do -- so only one of them is on screen
+    // at a time.
+    const graded = picked( "scoring_mode" ) === "graded";
+    note( "swipe-graded-note" , "settings.swipe_graded_note" , graded );
+    Dom.show( Dom.get( "swipe-unused" ) , !graded );
+    note( "practice-new-note" , "settings.practice_new_note" , picked( "practice_mode" ) === "new_only" );
   },
 
   // Name the direction no answer is bound to. Without this the fourth
@@ -195,6 +227,9 @@ const Settings = {
   showUnusedDirection() {
     const label = Dom.get( "swipe-unused" );
     if ( !label ) return;
+    // Only the text: whether the line is on screen at all belongs to
+    // showModeNotes, which hands the floor to the graded note instead. Keeping
+    // the two apart means this line is still up to date when it comes back.
     const taken = this.swipeFields.map( function ( entry ) { return Dom.get( entry.id ).value; } );
     const spare = this.directionChoices.find( function ( choice ) {
       return taken.indexOf( choice.value ) === -1;
@@ -246,6 +281,10 @@ const Settings = {
       } );
     } );
 
+    Dom.all( 'input[name="scoring_mode"], input[name="practice_mode"]' ).forEach( function ( input ) {
+      input.addEventListener( "change" , function () { self.showModeNotes(); } );
+    } );
+
     // Hearing the voice is the only way to choose one, so the preview speaks
     // whatever is selected right now rather than what is saved. Same reason
     // the theme switch below applies before the save does.
@@ -285,6 +324,7 @@ const Settings = {
       level:           Number( Dom.get( "level-select" ).value ),
       reveal_mode:     checked( "reveal_mode" , "definition_hidden" ),
       practice_mode:   checked( "practice_mode" , "mixed" ),
+      scoring_mode:    checked( "scoring_mode" , "binary" ),
       swipe_unknown:   Dom.get( "swipe-unknown" ).value,
       swipe_skip:      Dom.get( "swipe-skip" ).value,
       swipe_known:     Dom.get( "swipe-known" ).value,

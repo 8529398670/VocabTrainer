@@ -40,7 +40,7 @@
           <!-- Only shown while the deck is filtered to the not-known list, so
                a short run is never mistaken for having run out of words. -->
           <span id="deck-practice" class="badge badge-practice" hidden></span>
-          <div class="deck-progress"><span id="deck-progress-fill"></span></div>
+          <div class="deck-progress" id="deck-progress"><span id="deck-progress-fill"></span></div>
           <span id="deck-counts"></span>
         </div>
 
@@ -63,6 +63,50 @@
               <span data-i18n="train.known_button"></span>
             </button>
           </div>
+
+          <!-- The four-grade row, for the Anki-style scoring mode. Hidden
+               until train.js says otherwise, and the three-answer row above
+               is hidden in its place -- the two are never both on screen.
+
+               The grades stay in this order however the swipes are arranged,
+               unlike the row above: what a grade means is where it sits in
+               the sequence, so a row out of order is a row you have to read
+               rather than glance at. Only the two ends carry an arrow,
+               because only those two are on a swipe; the empty spans are
+               filled in (or left empty) by renderGradeControls. -->
+          <div class="deck-grades" id="deck-grades" hidden>
+            <button type="button" id="grade-again" class="grade-again">
+              <span class="action-icon" aria-hidden="true"></span>
+              <span data-i18n="train.grade_again"></span>
+              <span class="grade-interval" aria-hidden="true"></span>
+            </button>
+            <button type="button" id="grade-hard" class="grade-hard">
+              <span class="action-icon" aria-hidden="true"></span>
+              <span data-i18n="train.grade_hard"></span>
+              <span class="grade-interval" aria-hidden="true"></span>
+            </button>
+            <button type="button" id="grade-good" class="grade-good">
+              <span class="action-icon" aria-hidden="true"></span>
+              <span data-i18n="train.grade_good"></span>
+              <span class="grade-interval" aria-hidden="true"></span>
+            </button>
+            <button type="button" id="grade-easy" class="grade-easy">
+              <span class="action-icon" aria-hidden="true"></span>
+              <span data-i18n="train.grade_easy"></span>
+              <span class="grade-interval" aria-hidden="true"></span>
+            </button>
+          </div>
+
+          <!-- Skip has no place in a row of grades -- it is not one, and a
+               fifth button would take a fifth of a phone's width from four
+               that need it. It gets its own line instead. -->
+          <div class="deck-aside" id="deck-aside" hidden>
+            <button type="button" id="grade-skip" class="action-skip">
+              <span class="action-icon" aria-hidden="true"></span>
+              <span data-i18n="train.skip_button"></span>
+            </button>
+          </div>
+
           <p class="deck-help" id="gesture-help"></p>
           <!-- Hidden on a touch device by the stylesheet: two lines about the
                arrow keys is a poor trade for two lines of a phone screen. -->

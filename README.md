@@ -112,6 +112,25 @@ clearing familiar ones is only being held up; with it on, "I know it" goes
 straight to the next card. Off by default, and the other two answers are
 unaffected.
 
+### Four grades, if you want them
+
+Settings can swap the two answers for Anki's four — **Again, Hard, Good,
+Easy** — each button printed with how long it would put the word away for, so
+a grade is never given blind. A new word offers 10m / 1d / 4d / 8d; a word
+seen twice offers rather more.
+
+The swipes keep their directions and take the two extremes: the direction
+bound to "don't know" answers **Again**, the soonest, and the one bound to "I
+know it" answers **Easy**, the latest. Skip is where it always was. Hard and
+Good sit between them, on the buttons and on keys 1 to 4 — there is nowhere
+sensible to put them otherwise, and they are the two answers worth a
+deliberate press rather than a flick.
+
+Off by default. One bit is what a thumb gives without stopping to think, and
+a vocabulary run cannot afford much stopping; four is there for people who
+would rather grade properly, and turning it off again changes nothing about
+how cards are scheduled.
+
 ### What a run is built from
 
 By default a run is the reviews that have fallen due, topped up with words you
@@ -123,6 +142,15 @@ overdue first, and nothing new — because someone who turns it on is asking to
 work through their own failures now rather than wait for a card to come round.
 It is the one deck with a bottom: clear it and there is nothing left to show.
 
+Or to **only words you have never seen**, which turns spaced repetition off
+altogether: no reviews, no daily limit, and no end — run out and the next
+handful arrives straight away, so there are no sessions to finish. The
+progress bar and the cards-left count go with it, since neither is measuring
+anything any more. Swipes are still filed in your lists, which is what keeps a
+word from being drawn twice; they just never bring it round again. Spaced
+repetition is a bargain, and not everyone wants it: someone reading for
+breadth is served worse by yesterday's words than by the next ones.
+
 ### Scheduling
 
 SM-2, adapted to the one bit of feedback a swipe gives. A card answered
@@ -130,6 +158,13 @@ SM-2, adapted to the one bit of feedback a swipe gives. A card answered
 drifts up with success and down with lapses. A card answered "not known"
 comes back in 10 minutes — inside the same session, which is most of why
 relearning works — and climbs the early intervals again from the start.
+
+The four grades are the same scheduler with two more rows in the table: Again
+and Good *are* "not known" and "known", under the names Anki gives them, while
+Hard takes a small fixed step and costs ease, and Easy multiplies by the ease
+and a bonus on top. The delays printed on the buttons come from running that
+scheduler on a copy of the card rather than from a second implementation of
+it, so a button cannot promise one thing and the scheduler do another.
 
 Reviews that are due are never withheld; only *new* words are capped, by the
 daily limit in Settings. Capping reviews is how a backlog becomes permanent.

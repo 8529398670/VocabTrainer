@@ -33,6 +33,11 @@ type cardView struct {
 	Status string `json:"status,omitempty"`
 	IsNew  bool   `json:"is_new"`
 
+	// Intervals is what each answer would do to this card, in seconds --
+	// what the four-button mode prints under each grade. Absent in the
+	// two-answer mode, where nothing reads it: see deckView.
+	Intervals map[string]int64 `json:"intervals,omitempty"`
+
 	Reps   int `json:"reps,omitempty"`
 	Lapses int `json:"lapses,omitempty"`
 
@@ -59,6 +64,21 @@ func viewFromWord( word *corpus.Word , card *models.Card ) ( view cardView ) {
 	if card.LastSeenAt.IsZero() == false {
 		seen := card.LastSeenAt
 		view.LastSeenAt = &seen
+	}
+	return
+}
+
+// deckView is viewFromWord plus the interval preview each grade is labelled
+// with, for a card that is about to be dealt.
+//
+// The previews are left off entirely in the two-answer mode. Nothing reads
+// them there, and a deck carries twenty cards -- four numbers apiece is not
+// much, but it is not nothing either, and a field on the wire that no client
+// uses is a field somebody eventually believes in.
+func deckView( word *corpus.Word , card *models.Card , settings *models.Settings , now time.Time ) ( view cardView ) {
+	view = viewFromWord( word , card )
+	if settings.ScoringMode == models.ScoringGraded {
+		view.Intervals = models.Preview( card , now )
 	}
 	return
 }
@@ -125,10 +145,14 @@ func ( handlers *Handlers ) GetDeck( c fiber.Ctx ) ( err error ) {
 	cards , err := models.ListCards( handlers.Store , user.ID )
 	if err != nil { return serverError( c ) }
 
-	// Drilling the "not known" list is a different deck entirely, so it is
-	// answered before any of the scheduling below runs.
-	if settings.PracticeMode == models.PracticeUnknown {
+	// Two of the three practice modes build a deck the scheduler has no say
+	// in, so they are answered before any of the scheduling below runs.
+	switch settings.PracticeMode {
+	case models.PracticeUnknown:
 		err = handlers.unknownDeck( c , user.ID , settings , cards , now )
+		return
+	case models.PracticeNew:
+		err = handlers.newDeck( c , user.ID , settings , cards , now )
 		return
 	}
 
@@ -150,7 +174,7 @@ func ( handlers *Handlers ) GetDeck( c fiber.Ctx ) ( err error ) {
 			// word comes back.
 			continue
 		}
-		views = append( views , viewFromWord( word , card ) )
+		views = append( views , deckView( word , card , settings , now ) )
 	}
 
 	introduced := 0
@@ -176,7 +200,7 @@ func ( handlers *Handlers ) GetDeck( c fiber.Ctx ) ( err error ) {
 		fresh := handlers.Corpus.Draw( settings.Level , room ,
 			func( word string ) bool { return seen[ word ] } , random )
 		for _ , word := range fresh {
-			views = append( views , viewFromWord( word , nil ) )
+			views = append( views , deckView( word , nil , settings , now ) )
 		}
 	}
 
@@ -215,7 +239,7 @@ func ( handlers *Handlers ) unknownDeck( c fiber.Ctx , user_id uint64 , settings
 		if len( views ) >= settings.BatchSize { break }
 		word , found := handlers.Corpus.Lookup( card.Word )
 		if found == false { continue }
-		views = append( views , viewFromWord( word , card ) )
+		views = append( views , deckView( word , card , settings , now ) )
 	}
 
 	counts , err := models.CountCards( handlers.Store , user_id , now )
@@ -228,6 +252,48 @@ func ( handlers *Handlers ) unknownDeck( c fiber.Ctx , user_id uint64 , settings
 		"new_remaining":   0,
 		"daily_new_limit": settings.DailyNewLimit,
 		"practice_pool":   len( pool ),
+	} )
+	return
+}
+
+// newDeck builds a run from words the user has never seen, and nothing else.
+//
+// No reviews, no daily limit, and no bottom: the run is one batch, and
+// running out of it simply asks for the next one, so the screen never says
+// "come back later". Someone who has chosen this mode has said they would
+// rather meet words than be paced through them, and almost everything else in
+// this file exists to do the opposite.
+//
+// Swipes are still recorded. That is not a contradiction: the record is what
+// files the word in a list and what keeps it out of the next draw, so without
+// it the same twenty words would come back forever. What the record no longer
+// does is bring the word round again.
+func ( handlers *Handlers ) newDeck( c fiber.Ctx , user_id uint64 , settings *models.Settings , cards []*models.Card , now time.Time ) ( err error ) {
+	seen := map[string]bool{}
+	for _ , card := range cards { seen[ card.Word ] = true }
+
+	random := rand.New( rand.NewSource( now.UnixNano() ) )
+	fresh := handlers.Corpus.Draw( settings.Level , settings.BatchSize ,
+		func( word string ) bool { return seen[ word ] } , random )
+
+	views := []cardView{}
+	for _ , word := range fresh {
+		views = append( views , deckView( word , nil , settings , now ) )
+	}
+
+	counts , err := models.CountCards( handlers.Store , user_id , now )
+	if err != nil { return serverError( c ) }
+
+	// new_remaining is zero because there is no allowance to have left: this
+	// deck does not consult the daily limit at all. An empty deck here means
+	// the reading level itself is spent, which is the one thing the empty
+	// screen has to say.
+	err = c.JSON( fiber.Map{
+		"cards":           views,
+		"settings":        settings,
+		"counts":          counts,
+		"new_remaining":   0,
+		"daily_new_limit": settings.DailyNewLimit,
 	} )
 	return
 }
@@ -252,8 +318,12 @@ func ( handlers *Handlers ) PostReview( c fiber.Ctx ) ( err error ) {
 	if err = c.Bind().Body( &request ); err != nil { return badRequest( c , "malformed request" ) }
 	if handlers.Guard.CheckCSRF( c , request.CSRFToken ) == false { return forbidden( c , "bad csrf token" ) }
 
+	// The two extra grades are accepted whatever the user's scoring mode says.
+	// Checking it here would only be able to reject a swipe that was already
+	// on its way when the setting changed -- a card answered honestly, thrown
+	// away for a reason the user would never see.
 	switch request.Outcome {
-	case models.OutcomeKnown , models.OutcomeUnknown , models.OutcomeSkip:
+	case models.OutcomeKnown , models.OutcomeUnknown , models.OutcomeSkip , models.OutcomeHard , models.OutcomeEasy:
 	default:
 		return badRequest( c , "unrecognised outcome" )
 	}

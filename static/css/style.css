@@ -784,6 +784,10 @@ body.screen-train #signed-out:not([hidden]) {
 .swipe-hint-known   { background: var(--ok-bg);    color: var(--ok-fg); }
 .swipe-hint-unknown { background: var(--error-bg); color: var(--error-fg); }
 .swipe-hint-skip    { background: var(--warn-bg);  color: var(--warn-fg); }
+/* Easy is what the "I know it" direction answers once the four grades are on,
+   so it is the same green: the gesture has not changed, only how far it
+   carries the card. */
+.swipe-hint-easy    { background: var(--ok-bg);    color: var(--ok-fg); }
 
 /* The badges share the top band with three of the hints, so train.js hands
    the band over from one to the other partway through a drag -- see the
@@ -806,13 +810,23 @@ body.screen-train #signed-out:not([hidden]) {
   gap: 0.45rem;
 }
 
+/* The four-grade row. One more column in the same width, so the gap closes
+   rather than the buttons shrinking further -- four labels of one short word
+   each fit where three longer ones did. */
+.deck-grades {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
 /* The generous side padding a normal button carries does not survive being
    divided three ways on a 320px phone: "Don't know" wrapped to two lines and
    the taller row was part of what pushed the whole set off the bottom of the
    screen. The label is allowed to shrink a little instead, and min-width: 0
    lets the grid track actually be as narrow as its share rather than as wide
    as the longest word in it. */
-.deck-actions button {
+.deck-actions button,
+.deck-grades button {
   min-height: 3rem;
   min-width: 0;
   padding: 0.4rem 0.3rem;
@@ -831,16 +845,63 @@ body.screen-train #signed-out:not([hidden]) {
   -webkit-tap-highlight-color: transparent;
 }
 
-.deck-actions button > span:last-child {
+.deck-actions button > span:last-child,
+.deck-grades button > span:last-child {
   min-width: 0;
   overflow-wrap: break-word;
 }
 
-.deck-actions .action-icon { font-size: 1.05rem; line-height: 1; }
+.deck-actions .action-icon,
+.deck-grades .action-icon { font-size: 1.05rem; line-height: 1; }
 
 button.action-unknown { background: var(--error-bg); color: var(--error-fg); border: 1px solid transparent; }
 button.action-skip    { background: var(--warn-bg);  color: var(--warn-fg);  border: 1px solid transparent; }
 button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid transparent; }
+
+/* The grades read left to right as a scale, so the colours do too: red for
+   the miss, amber for the struggle, green for the two that keep the word --
+   with Easy carrying the accent border so the two greens are still one
+   glance apart. */
+button.grade-again { background: var(--error-bg); color: var(--error-fg); border: 1px solid transparent; }
+button.grade-hard  { background: var(--warn-bg);  color: var(--warn-fg);  border: 1px solid transparent; }
+button.grade-good  { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid transparent; }
+button.grade-easy  { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid var(--ok-fg); }
+
+/* The delay each grade buys. Quieter than the label above it: it is a number
+   you check rather than one you read, and at full weight four of them turn
+   the row into a table. */
+.grade-interval {
+  font-size: 0.62rem;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Skip, on its own line under the grades. A quiet pill rather than a fourth
+   of the row: it is not a grade, and giving it equal weight would suggest it
+   belonged on the same scale. */
+.deck-aside {
+  display: flex;
+  justify-content: center;
+}
+
+.deck-aside button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.1rem;
+  padding: 0.25rem 1.2rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  width: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.deck-aside .action-icon { font-size: 0.95rem; line-height: 1; }
 
 .deck-help {
   text-align: center;
@@ -1133,7 +1194,20 @@ button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    bor
     height: 100%;
   }
 
-  .deck-actions button { flex-direction: row; gap: 0.4rem; padding: 0.3rem 0.45rem; }
+  .deck-grades {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(2.1rem, 1fr);
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .deck-actions button,
+  .deck-grades button { flex-direction: row; gap: 0.4rem; padding: 0.3rem 0.45rem; }
+
+  /* Beside the card there is no room for a second line under each label, so
+     the delay sits after it on the same one. */
+  .deck-grades button { min-height: 2.1rem; }
+  .deck-aside button { padding: 0.2rem 0.8rem; }
 
   /* Both help lines go: the arrows are on the buttons, and a line of prose is
      the first thing that should give when there are 390px to share. */

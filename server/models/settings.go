@@ -44,6 +44,40 @@ const (
 	// turns this on is asking to work through their own failures, which is a
 	// different activity from studying.
 	PracticeUnknown = "unknown_only"
+
+	// PracticeNew turns the scheduler off. Nothing but words never seen
+	// before, no daily limit, and no end: run out and the next handful is
+	// drawn straight away.
+	//
+	// This is the opposite of what the rest of this file is for, and that is
+	// the point. Spaced repetition is a bargain -- review on the machine's
+	// schedule and you keep what you meet -- and not everyone wants it.
+	// Someone reading for breadth, or skimming a level to see what is in it,
+	// is served worse by being handed yesterday's words back than by simply
+	// being shown the next ones. Swipes are still recorded, so the lists
+	// still fill up and a word is never drawn twice; they just never bring
+	// the word round again.
+	PracticeNew = "new_only"
+)
+
+// Scoring modes: how many answers a card offers.
+const (
+	// ScoringBinary is the two answers this app was built around -- "I know
+	// it" and "I don't" -- one per swipe direction. It stays the default:
+	// one bit is what a thumb can give without stopping to think, and
+	// stopping to think is what a vocabulary run cannot afford much of.
+	ScoringBinary = "binary"
+
+	// ScoringGraded is Anki's four: Again, Hard, Good and Easy, each showing
+	// how long it would put the card away for. The swipes carry the two
+	// extremes -- the direction bound to "don't know" answers Again, the
+	// shortest delay, and the direction bound to "I know it" answers Easy,
+	// the longest -- so the gesture still means what it meant. Hard and Good
+	// sit between them and are reachable from the buttons and the number
+	// keys, because there is nowhere sensible to put them: four grades and a
+	// skip would need five directions, and a swipe you have to aim is not
+	// worth having.
+	ScoringGraded = "graded"
 )
 
 // RevealHoldUntilTap keeps the answer on screen until the next input. It is
@@ -85,9 +119,15 @@ type Settings struct {
 	SwipeUnknown string `json:"swipe_unknown"`
 	SwipeSkip    string `json:"swipe_skip"`
 
-	// PracticeMode chooses between the scheduled deck and drilling the
-	// "not known" list.
+	// PracticeMode chooses between the scheduled deck, drilling the "not
+	// known" list, and never scheduling anything at all.
 	PracticeMode string `json:"practice_mode"`
+
+	// ScoringMode chooses how many answers a card offers. A record written
+	// before this field existed decodes to "", which normalise() turns into
+	// ScoringBinary -- the behaviour that record was saved under, so nobody's
+	// app grows two extra buttons on upgrade.
+	ScoringMode string `json:"scoring_mode"`
 
 	// RevealHoldMs is how long the answer stays up when a card is answered
 	// *before* it was revealed -- the one moment the app shows something the
@@ -150,6 +190,7 @@ func DefaultSettings() ( settings *Settings ) {
 		SwipeUnknown:  DirectionLeft,
 		SwipeSkip:     DirectionUp,
 		PracticeMode:  PracticeMixed,
+		ScoringMode:   ScoringBinary,
 		RevealHoldMs:  defaultRevealHoldMs,
 		DailyNewLimit: defaultDailyNewLimit,
 		BatchSize:     defaultBatchSize,
@@ -198,9 +239,14 @@ func ( settings *Settings ) normalise() {
 	if settings.RevealMode != RevealDefinition && settings.RevealMode != RevealWord {
 		settings.RevealMode = RevealDefinition
 	}
-	if settings.PracticeMode != PracticeMixed && settings.PracticeMode != PracticeUnknown {
+	switch settings.PracticeMode {
+	case PracticeMixed , PracticeUnknown , PracticeNew:
+	default:
 		settings.PracticeMode = PracticeMixed
 	}
+	// Anything but the graded mode is the binary one, which is what makes the
+	// unset field on an older record mean "leave my app as it was".
+	if settings.ScoringMode != ScoringGraded { settings.ScoringMode = ScoringBinary }
 	settings.normaliseDirections()
 	if settings.BatchSize < 5 || settings.BatchSize > 100 { settings.BatchSize = defaultBatchSize }
 	if settings.DailyNewLimit < 0 || settings.DailyNewLimit > 500 { settings.DailyNewLimit = defaultDailyNewLimit }

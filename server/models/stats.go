@@ -48,9 +48,14 @@ func DateKey( when time.Time ) ( result string ) {
 func RecordActivity( store *db.Store , user_id uint64 , date string , outcome string , isNew bool ) ( err error ) {
 	key := dailyKey( user_id , date )
 
+	// Three counters for what is now five answers, because the counters are
+	// the three lists a word can be in and the four grades only say how
+	// firmly. Hard, Good and Easy all mean the word was recalled, so all
+	// three land where "I know it" lands -- which is also the status the
+	// scheduler gives the card, so the daily count and the list agree.
 	bump := func( stat *DayStat ) {
 		switch outcome {
-		case OutcomeKnown:
+		case OutcomeKnown , OutcomeHard , OutcomeEasy:
 			stat.Known += 1
 		case OutcomeUnknown:
 			stat.Unknown += 1

@@ -65,6 +65,22 @@ train:
   hint_known: "Known"
   hint_unknown: "Not known"
   hint_skip: "Skipped"
+  # The four-grade scoring mode -- see settings.scoring_heading. Only Again
+  # and Easy can be reached by swiping, so only those two have a card hint;
+  # the other two live on the buttons below the card.
+  grade_again: "Again"
+  grade_hard: "Hard"
+  grade_good: "Good"
+  grade_easy: "Easy"
+  hint_again: "Again"
+  hint_easy: "Easy"
+  # The delay printed under each grade. {count} is the number; the unit sits
+  # here with it so a translation can put the two in whichever order it wants.
+  interval_minutes: "{count}m"
+  interval_hours: "{count}h"
+  interval_days: "{count}d"
+  interval_months: "{count}mo"
+  interval_years: "{count}y"
   empty_heading: "Nothing due right now"
   empty_body: "You have cleared the words that were due and today's new words. Take another handful whenever you like, or come back later."
   empty_action: "Open settings"
@@ -76,10 +92,19 @@ train:
   # {known}, {unknown} and {skip} are filled in with the directions chosen in
   # Settings, so this line stays true whichever way round they are.
   gesture_help: "Swipe {known} if you know it, {unknown} if you don't, {skip} to skip. Or use the buttons."
+  # The same line for the four-grade mode, where a swipe reaches the two
+  # extremes and the middle two grades are on the buttons. {again}, {easy}
+  # and {skip} are the directions chosen in Settings.
+  gesture_help_graded: "Swipe {again} for Again, {easy} for Easy, {skip} to skip. Hard and Good are on the buttons, or keys 1 to 4."
   keyboard_help: "Keyboard: the arrow keys match the swipes · space reveals."
   practice_badge: "Not known only"
   empty_practice_heading: "Nothing left to practise"
   empty_practice_body: "Your not-known list is empty. Switch back to the normal deck in Settings to meet new words."
+  # Shown while the deck is nothing but words never seen before. That deck
+  # only empties when the reading level itself runs out, so it borrows
+  # empty_more_none for the explanation.
+  endless_badge: "New words only"
+  empty_new_heading: "No new words left"
   remaining: "left in this run"
   new_badge: "new"
   review_badge: "review"
@@ -150,6 +175,9 @@ settings:
   swipe_right: "Swipe right"
   # {direction} is the one direction no answer is bound to.
   swipe_unused: "Swiping {direction} does nothing."
+  # Shown in place of the line above when four grades are on, because the two
+  # directions then mean something narrower than their labels say.
+  swipe_graded_note: "With four grades a swipe answers the two extremes: the \"don't know\" direction is Again, the soonest, and the \"I know it\" direction is Easy, the latest. Hard and Good sit between them on the buttons, or on keys 1 to 4."
   speech_heading: "Pronunciation"
   speech_help: "The speaker on each card reads the word aloud using a voice already on this device. Which voices are on offer is up to the device, so a voice chosen here may not exist on another one -- that one falls back to its own default."
   speech_voice_label: "Voice"
@@ -158,10 +186,18 @@ settings:
   # The word the preview button says. Any word will do; a long one shows more
   # of the voice than a short one.
   speech_sample: "vocabulary"
+  scoring_heading: "How a card is answered"
+  scoring_help: "How many answers each card offers, and how finely they judge it."
+  scoring_binary: "Two answers -- I know it, or I don't"
+  scoring_graded: "Four grades, each showing when the word comes back -- Again, Hard, Good, Easy"
   practice_heading: "What to practise"
   practice_help: "Which words a run is built from."
   practice_mixed: "Everything due, plus new words"
   practice_unknown: "Only words I don't know"
+  practice_new: "Only words I have never seen, endlessly"
+  # Shown under the practice choices when the last one is picked, because
+  # turning the scheduler off is a bigger thing than the one line above says.
+  practice_new_note: "No reviews, no daily limit and no end: a run is followed straight away by the next one. Words you answer still go into your lists -- they just never come back."
   pace_heading: "Pacing"
   reveal_hold_heading: "Answering without revealing"
   reveal_hold_help: "Swipe (or press a button) without turning the card over and the answer is shown anyway, so a wrong guess is corrected on the spot. This is how long it stays up."
@@ -177,7 +213,7 @@ settings:
   reveal_hold_15000: "15 seconds"
   reveal_hold_until: "Until I answer again"
   known_no_reveal_label: "Except when I know it"
-  known_no_reveal_help: "With this on, \"I know it\" goes straight to the next card. There is nothing to correct when you already knew the word, and the other two answers still show the answer for the time above."
+  known_no_reveal_help: "With this on, \"I know it\" goes straight to the next card. There is nothing to correct when you already knew the word, and the other answers still show it for the time above. With four grades on this covers Good and Easy, but not Hard -- a word that came back slowly is exactly the one worth a second look."
   daily_new_label: "New words per day"
   daily_new_unlimited: "No limit"
   batch_label: "Cards per run"

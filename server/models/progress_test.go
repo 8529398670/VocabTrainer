@@ -156,3 +156,107 @@ func TestStreakSurvivesACheckTheNextDay( t *testing.T ) {
 		t.Errorf( "streak = %d for a day with no reviews, wanted 0" , got )
 	}
 }
+
+// The four grades have to stay in order at every point on a card's life, or
+// the labels under the buttons are a lie. This is the property worth testing
+// rather than any one interval: what "Hard" means is "sooner than Good", and
+// what "Easy" means is "later".
+func TestGradesAreOrdered( t *testing.T ) {
+	// Three cards at different ages, because the order comes from three
+	// different branches: the first answer, the second, and the multiplied
+	// ones after that.
+	ages := []int{ 0 , 1 , 2 , 5 }
+	for _ , age := range ages {
+		base := &Card{ Word: "quixotic" , Ease: startingEase }
+		for round := 0; round < age; round += 1 {
+			apply( t , base , OutcomeKnown , at( 1 ) )
+		}
+
+		now := at( 20 )
+		delays := map[string]time.Duration{}
+		for _ , outcome := range []string{ OutcomeUnknown , OutcomeHard , OutcomeKnown , OutcomeEasy } {
+			trial := *base
+			apply( t , &trial , outcome , now )
+			delays[ outcome ] = trial.DueAt.Sub( now )
+		}
+
+		// Two grades may land on the same delay, but only once the year-long
+		// cap has caught both of them -- at that point the card is as good as
+		// learned and the distinction has nothing left to express. Anywhere
+		// below the cap a harder grade has to mean a shorter delay.
+		ceiling := time.Duration( maximumInterval * float64( 24*time.Hour ) )
+		ordered := []string{ OutcomeUnknown , OutcomeHard , OutcomeKnown , OutcomeEasy }
+		for index := 1; index < len( ordered ); index += 1 {
+			harder , easier := ordered[ index-1 ] , ordered[ index ]
+			if delays[ easier ] < delays[ harder ] {
+				t.Errorf( "after %d correct answers %q (%v) came back sooner than %q (%v)" ,
+					age , easier , delays[ easier ] , harder , delays[ harder ] )
+			}
+			if delays[ easier ] == delays[ harder ] && delays[ easier ] < ceiling {
+				t.Errorf( "after %d correct answers %q and %q both gave %v, short of the cap" ,
+					age , harder , easier , delays[ easier ] )
+			}
+		}
+	}
+}
+
+// Hard and Easy both mean the word was recalled, so both file it under
+// "known" -- the same list the plain answer uses. A grade says how firmly,
+// not which list.
+func TestEveryRememberedGradeFilesTheCardAsKnown( t *testing.T ) {
+	for _ , outcome := range []string{ OutcomeKnown , OutcomeHard , OutcomeEasy } {
+		card := &Card{ Word: "recondite" , Ease: startingEase }
+		apply( t , card , outcome , at( 1 ) )
+		if card.Status != StatusKnown {
+			t.Errorf( "%q gave status %q, wanted %q" , outcome , card.Status , StatusKnown )
+		}
+		if card.Reps != 1 { t.Errorf( "%q left reps at %d" , outcome , card.Reps ) }
+	}
+}
+
+// Hard is a correct answer with a penalty, not a lapse: the ease falls, but
+// the card is not sent back to the start the way a miss sends it.
+func TestHardLowersTheEaseWithoutLapsing( t *testing.T ) {
+	card := &Card{ Word: "truculent" , Ease: startingEase }
+	apply( t , card , OutcomeKnown , at( 1 ) )
+	apply( t , card , OutcomeKnown , at( 5 ) )
+
+	easeBefore := card.Ease
+	apply( t , card , OutcomeHard , at( 15 ) )
+
+	if card.Ease >= easeBefore { t.Errorf( "ease %v did not fall from %v" , card.Ease , easeBefore ) }
+	if card.Lapses != 0 { t.Errorf( "hard counted %d lapses" , card.Lapses ) }
+	if card.Reps != 3 { t.Errorf( "reps = %d, wanted the run to continue at 3" , card.Reps ) }
+}
+
+// Preview exists so a button can say what pressing it will do. The only way
+// that stays true is if it reports what the scheduler actually does, so that
+// is what is checked -- not any particular number.
+func TestPreviewMatchesTheScheduler( t *testing.T ) {
+	now := at( 12 )
+	card := &Card{ Word: "salient" , Ease: startingEase }
+	apply( t , card , OutcomeKnown , at( 1 ) )
+
+	before := *card
+	preview := Preview( card , now )
+
+	if *card != before { t.Error( "Preview changed the card it was asked about" ) }
+	if _ , present := preview[ OutcomeSkip ]; present {
+		t.Error( "skip was previewed, but skipping leaves the schedule alone" )
+	}
+
+	for outcome , seconds := range preview {
+		trial := before
+		apply( t , &trial , outcome , now )
+		wanted := int64( trial.DueAt.Sub( now ) / time.Second )
+		if seconds != wanted {
+			t.Errorf( "%q previewed %ds, but the scheduler gives %ds" , outcome , seconds , wanted )
+		}
+	}
+
+	// A word never seen before is the commonest card in the deck, so it must
+	// preview too rather than needing a record first.
+	if fresh := Preview( nil , now ); len( fresh ) != 4 {
+		t.Errorf( "a new word previewed %d grades, wanted 4" , len( fresh ) )
+	}
+}

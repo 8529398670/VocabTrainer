@@ -144,3 +144,39 @@ func TestKnownSkipsRevealIsOffUnlessAskedFor( t *testing.T ) {
 		t.Error( "the choice was normalised away" )
 	}
 }
+
+// The scoring mode is new, so every record that exists predates it and
+// decodes it as "". That has to mean the two-answer card those records were
+// saved under -- an upgrade that silently put two more buttons on everyone's
+// screen would be a change nobody asked for.
+func TestScoringModeDefaultsToTheTwoAnswerCard( t *testing.T ) {
+	if DefaultSettings().ScoringMode != ScoringBinary {
+		t.Errorf( "default scoring mode = %q, wanted %q" , DefaultSettings().ScoringMode , ScoringBinary )
+	}
+
+	stored := &Settings{ Schema: settingsSchema } // as an older record decodes
+	stored.normalise()
+	if stored.ScoringMode != ScoringBinary {
+		t.Errorf( "an older record came back as %q, wanted %q" , stored.ScoringMode , ScoringBinary )
+	}
+
+	asked := DefaultSettings()
+	asked.ScoringMode = ScoringGraded
+	asked.normalise()
+	if asked.ScoringMode != ScoringGraded { t.Error( "the choice was normalised away" ) }
+
+	asked.ScoringMode = "five_buttons"
+	asked.normalise()
+	if asked.ScoringMode != ScoringBinary {
+		t.Errorf( "an unrecognised mode became %q, wanted %q" , asked.ScoringMode , ScoringBinary )
+	}
+}
+
+func TestNewOnlyPracticeModeIsKept( t *testing.T ) {
+	settings := DefaultSettings()
+	settings.PracticeMode = PracticeNew
+	settings.normalise()
+	if settings.PracticeMode != PracticeNew {
+		t.Errorf( "practice mode = %q, wanted it kept" , settings.PracticeMode )
+	}
+}

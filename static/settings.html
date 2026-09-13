@@ -86,6 +86,10 @@
             <select id="swipe-known"></select>
           </div>
           <p class="muted" id="swipe-unused"></p>
+          <!-- Shown by settings.js in place of the line above when four
+               grades are on, because the two labels then mean something
+               narrower than they say. -->
+          <p class="muted" id="swipe-graded-note" data-i18n="settings.swipe_graded_note" hidden></p>
         </div>
 
         <div class="card">
@@ -103,6 +107,21 @@
         </div>
 
         <div class="card">
+          <h2 data-i18n="settings.scoring_heading"></h2>
+          <p class="muted" data-i18n="settings.scoring_help"></p>
+          <div class="choice-list">
+            <label class="choice">
+              <input type="radio" name="scoring_mode" value="binary" />
+              <span data-i18n="settings.scoring_binary"></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="scoring_mode" value="graded" />
+              <span data-i18n="settings.scoring_graded"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
           <h2 data-i18n="settings.practice_heading"></h2>
           <p class="muted" data-i18n="settings.practice_help"></p>
           <div class="choice-list">
@@ -114,7 +133,15 @@
               <input type="radio" name="practice_mode" value="unknown_only" />
               <span data-i18n="settings.practice_unknown"></span>
             </label>
+            <label class="choice">
+              <input type="radio" name="practice_mode" value="new_only" />
+              <span data-i18n="settings.practice_new"></span>
+            </label>
           </div>
+          <!-- Shown by settings.js only while the last choice is picked:
+               turning the scheduler off entirely is a bigger thing than one
+               line in a list of three can carry. -->
+          <p class="muted" id="practice-new-note" data-i18n="settings.practice_new_note" hidden></p>
         </div>
 
         <div class="card">

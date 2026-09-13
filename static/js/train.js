@@ -1,10 +1,18 @@
-// The training screen: a stack of cards, three ways to answer each one.
+// The training screen: a stack of cards, and either three or five ways to
+// answer each one.
 //
 // The interaction the rest of this file exists to serve:
 //
 //   "I already know it"  )  one swipe direction each, and which direction is
 //   "I don't know it"    )  which is the user's choice -- see the swipe_*
 //   skip, filed for later)  settings. The fourth direction does nothing.
+//
+// With the four-grade scoring mode on (settings.scoring_mode), the same three
+// gestures answer Again, Easy and skip -- the two extremes of the grade
+// scale, plus the skip that is not on it -- and Hard and Good join them on
+// the buttons and on the number keys. The two extremes are what a swipe is
+// good for: they are the two answers you never have to aim for, and the
+// middle two are exactly the ones worth a deliberate press.
 //
 // Answering reveals the hidden side before the card leaves, so a wrong guess
 // is corrected immediately -- that reveal is most of the value of the
@@ -24,6 +32,10 @@ const Trainer = {
   // Set once an outcome has been recorded and the answer is on screen. The
   // card is spent at that point -- any further input just moves things along.
   awaitingContinue: false,
+  // The exit the recorded card is waiting to make. pendingDirection is null
+  // for an answer that has no direction on it -- Hard and Good -- so the
+  // flag is what says a card is waiting to leave at all.
+  pendingExit: false,
   pendingDirection: null,
   advanceTimer: null,
   busy: false,
@@ -44,6 +56,17 @@ const Trainer = {
   // The server normalises this too; this is the belt to its braces.
   fallbackDirections: { unknown: "left" , skip: "up" , known: "right" },
 
+  // The four grades, soonest first, which is the order the row is drawn in
+  // and the order the number keys follow. Two of them are outcomes the app
+  // already had under other names: Again is "unknown" and Good is "known" --
+  // see the note above OutcomeHard in server/models/progress.go.
+  gradeButtons: [
+    { id: "grade-again" , outcome: "unknown" },
+    { id: "grade-hard"  , outcome: "hard" },
+    { id: "grade-good"  , outcome: "known" },
+    { id: "grade-easy"  , outcome: "easy" },
+  ],
+
   async init() {
     this.settings = await Shell.loadSettings();
     this.applyDirections();
@@ -59,16 +82,27 @@ const Trainer = {
   current() { return this.queue[ this.at ] || null; },
   next()    { return this.queue[ this.at + 1 ] || null; },
 
+  // Whether the card offers four grades rather than two answers.
+  graded() { return !!this.settings && this.settings.scoring_mode === "graded"; },
+
   // The settings store one direction per outcome, because that is the
   // question the settings screen asks. Every input arrives as a direction, so
   // the mapping is inverted once here rather than searched on each swipe.
   applyDirections() {
     const settings = this.settings || {};
     const fallback = this.fallbackDirections;
+
+    // The directions do not move when the grades are on -- the same three
+    // gestures answer the same three things. What changes is how far the
+    // "I know it" one goes: it becomes Easy, the longest delay on offer,
+    // because the grade scale it now sits on has somewhere further to go than
+    // the plain yes did. Again is already the shortest, so it needs no
+    // translation.
+    const remembered = this.graded() ? "easy" : "known";
     this.outcomeFor = {};
     this.outcomeFor[ settings.swipe_unknown || fallback.unknown ] = "unknown";
     this.outcomeFor[ settings.swipe_skip    || fallback.skip    ] = "skip";
-    this.outcomeFor[ settings.swipe_known   || fallback.known   ] = "known";
+    this.outcomeFor[ settings.swipe_known   || fallback.known   ] = remembered;
   },
 
   directionOf( outcome ) {
@@ -91,14 +125,35 @@ const Trainer = {
   // The reveal exists to correct a wrong guess on the spot, and there is no
   // wrong guess to correct when the answer was "I already know this" -- so
   // someone clearing familiar words is only being held up by it. Off by
-  // default: the reveal is the point of the exercise for the other two
-  // answers, and this one is a deliberate opt-out.
+  // default: the reveal is the point of the exercise for every other answer,
+  // and this is a deliberate opt-out.
   excusedFromReveal( outcome ) {
-    return outcome === "known" && !!( this.settings && this.settings.known_skips_reveal );
+    if ( !this.settings || !this.settings.known_skips_reveal ) return false;
+    // Good and Easy are both the answer this switch is about: the word was
+    // known, and there is nothing to correct. Hard is not -- it means the
+    // word came back slowly, which is precisely when seeing it again is
+    // worth the second.
+    return outcome === "known" || outcome === "easy";
+  },
+
+  // How long the phone buzzes for each answer. A miss is the one worth
+  // feeling, and with the grades on there is a middle to feel too.
+  buzzFor: { unknown: 22 , hard: 16 },
+
+  busyBuzz( outcome ) {
+    Shell.buzz( this.buzzFor[ outcome ] || 12 );
   },
 
   practising() {
     return !!this.settings && this.settings.practice_mode === "unknown_only";
+  },
+
+  // The mode with no scheduler in it: new words, one batch after another,
+  // with no end to reach. Nothing here treats a run as a unit, so the two
+  // things that count one -- the progress bar and the cards-left figure --
+  // are the two things that go.
+  endless() {
+    return !!this.settings && this.settings.practice_mode === "new_only";
   },
 
   // extra, when given, is a number of new words to add on top of whatever the
@@ -168,6 +223,7 @@ const Trainer = {
     const self = this;
     Dom.all( ".swipe-card" , stack ).forEach( function ( node ) { self.fitCard( node ); } );
 
+    if ( this.graded() ) this.renderGradeIntervals();
     this.renderProgress();
   },
 
@@ -233,22 +289,35 @@ const Trainer = {
       Dom.show( element , text !== "" );
     };
 
-    let bodyKey = "train.empty_body";
-    if ( practising ) bodyKey = "train.empty_practice_body";
-    else if ( this.exhausted ) bodyKey = "train.empty_more_none";
+    const endless = this.endless();
 
-    write( Dom.get( "deck-empty-heading" ) ,
-      I18n.get( practising ? "train.empty_practice_heading" : "train.empty_heading" ) );
+    let headingKey = "train.empty_heading";
+    let bodyKey = "train.empty_body";
+    if ( practising ) {
+      headingKey = "train.empty_practice_heading";
+      bodyKey = "train.empty_practice_body";
+    } else if ( endless ) {
+      // This deck has no daily limit and nothing to wait for, so the only
+      // thing that can empty it is the reading level itself running dry --
+      // which is what empty_more_none says.
+      headingKey = "train.empty_new_heading";
+      bodyKey = "train.empty_more_none";
+    } else if ( this.exhausted ) {
+      bodyKey = "train.empty_more_none";
+    }
+
+    write( Dom.get( "deck-empty-heading" ) , I18n.get( headingKey ) );
     write( Dom.get( "deck-empty-body" ) , I18n.get( bodyKey ) );
 
-    // Nothing new to offer in either of the two cases where there is nothing
-    // new to offer: the not-known deck draws no new words by design, and an
-    // exhausted level has none left at all.
+    // Nothing new to offer in any of the three cases where there is nothing
+    // new to offer: the not-known deck draws no new words by design, the
+    // endless deck has just failed to draw any, and an exhausted level has
+    // none left at all.
     const more = Dom.get( "deck-more" );
     if ( more ) {
       const label = I18n.format( "train.empty_more" , { count: this.MORE_WORDS } );
       Dom.text( more , label );
-      Dom.show( more , label !== "" && !practising && !this.exhausted );
+      Dom.show( more , label !== "" && !practising && !endless && !this.exhausted );
       more.disabled = false;
     }
   },
@@ -283,22 +352,49 @@ const Trainer = {
     }
   },
 
+  // Says which deck this is whenever it is not the ordinary one. Both of the
+  // narrowed decks need it for the same reason: a short run, or a run of
+  // nothing but new words, is otherwise indistinguishable from the scheduler
+  // behaving strangely.
   renderPracticeBadge() {
     const badge = Dom.get( "deck-practice" );
     if ( !badge ) return;
-    const text = I18n.get( "train.practice_badge" );
+    let key = "";
+    if ( this.practising() ) key = "train.practice_badge";
+    else if ( this.endless() ) key = "train.endless_badge";
+    const text = key === "" ? "" : I18n.get( key );
     Dom.text( badge , text );
-    Dom.show( badge , this.practising() && text !== "" );
+    Dom.show( badge , text !== "" );
   },
 
-  // The buttons carry the direction each answer is bound to -- both the arrow
-  // on the button and where the button sits in the row. Moving them matters
-  // as much as relabelling them: a button marked "left" sitting on the right
-  // of the row is a worse picture of the mapping than no picture at all.
+  // Picks the row of answers this card gets, and draws it. Called when the
+  // settings change rather than per card, because nothing in either row
+  // depends on which word is showing -- the delays under the grades do, and
+  // they are drawn separately, by renderGradeIntervals.
+  renderControls() {
+    const graded = this.graded();
+    // One row or the other, never both -- they answer the same card and a
+    // screen offering two sets of answers to one question is a screen nobody
+    // trusts.
+    Dom.show( Dom.get( "deck-actions" ) , !graded );
+    Dom.show( Dom.get( "deck-grades" ) , graded );
+    Dom.show( Dom.get( "deck-aside" ) , graded );
+
+    if ( graded ) this.renderGradeControls();
+    else this.renderAnswerControls();
+
+    this.renderGestureHelp();
+  },
+
+  // The three-answer row. The buttons carry the direction each answer is
+  // bound to -- both the arrow on the button and where the button sits in the
+  // row. Moving them matters as much as relabelling them: a button marked
+  // "left" sitting on the right of the row is a worse picture of the mapping
+  // than no picture at all.
   //
   // The nodes themselves are reordered rather than their CSS order, so the
   // keyboard tab order moves with the layout instead of diverging from it.
-  renderControls() {
+  renderAnswerControls() {
     const self = this;
     const row = Dom.get( "deck-actions" );
     const buttons = [ [ "action-unknown" , "unknown" ] , [ "action-skip" , "skip" ] , [ "action-known" , "known" ] ]
@@ -313,28 +409,108 @@ const Trainer = {
       } )
       .filter( function ( entry ) { return entry.button && entry.direction; } );
 
-    if ( row ) {
-      buttons
-        .slice()
-        .sort( function ( a , b ) { return self.rowOrder[ a.direction ] - self.rowOrder[ b.direction ]; } )
-        // appendChild on a node that is already in the row moves it, and a
-        // moved node keeps the click handler bound to it.
-        .forEach( function ( entry ) { row.appendChild( entry.button ); } );
-    }
+    if ( !row ) return;
+    buttons
+      .slice()
+      .sort( function ( a , b ) { return self.rowOrder[ a.direction ] - self.rowOrder[ b.direction ]; } )
+      // appendChild on a node that is already in the row moves it, and a
+      // moved node keeps the click handler bound to it.
+      .forEach( function ( entry ) { row.appendChild( entry.button ); } );
+  },
 
+  // The four-grade row, which is never reordered: the grades are in order of
+  // how soon the word comes back, and that order is what the labels mean.
+  //
+  // Only the two ends take an arrow, and the middle two are deliberately left
+  // bare. An arrow there would promise a gesture that does nothing, which is
+  // a worse lie than saying nothing at all.
+  renderGradeControls() {
+    const self = this;
+    const arrow = function ( button , outcome ) {
+      if ( !button ) return;
+      const icon = button.querySelector( ".action-icon" );
+      if ( !icon ) return;
+      const direction = self.directionOf( outcome );
+      Dom.text( icon , direction ? self.arrows[ direction ] : "" );
+      Dom.show( icon , !!direction );
+    };
+
+    this.gradeButtons.forEach( function ( entry ) {
+      arrow( Dom.get( entry.id ) , entry.outcome );
+    } );
+    arrow( Dom.get( "grade-skip" ) , "skip" );
+  },
+
+  renderGestureHelp() {
     const help = Dom.get( "gesture-help" );
     if ( !help ) return;
+    const self = this;
+    // An outcome with no direction on it names nothing, which leaves the
+    // placeholder showing rather than the word "undefined" -- see I18n.format.
     const named = function ( outcome ) {
-      return I18n.get( "train.direction_" + self.directionOf( outcome ) );
+      const direction = self.directionOf( outcome );
+      return direction ? I18n.get( "train.direction_" + direction ) : "";
     };
-    const text = I18n.format( "train.gesture_help" , {
-      known: named( "known" ) , unknown: named( "unknown" ) , skip: named( "skip" ),
-    } );
+    const text = this.graded()
+      ? I18n.format( "train.gesture_help_graded" , {
+          again: named( "unknown" ) , easy: named( "easy" ) , skip: named( "skip" ),
+        } )
+      : I18n.format( "train.gesture_help" , {
+          known: named( "known" ) , unknown: named( "unknown" ) , skip: named( "skip" ),
+        } );
     Dom.text( help , text );
     Dom.show( help , text !== "" );
   },
 
+  // The delay each grade would buy, printed under its label. This is the one
+  // thing Anki's four buttons genuinely need: a grade whose consequence you
+  // cannot see is a grade you are guessing at.
+  //
+  // It belongs to the card rather than to the settings, so it is redrawn with
+  // each card instead of once when the controls are built.
+  renderGradeIntervals() {
+    const card = this.current();
+    const intervals = ( card && card.intervals ) || {};
+    const self = this;
+    this.gradeButtons.forEach( function ( entry ) {
+      const button = Dom.get( entry.id );
+      const slot = button ? button.querySelector( ".grade-interval" ) : null;
+      if ( !slot ) return;
+      const text = self.formatInterval( intervals[ entry.outcome ] );
+      Dom.text( slot , text );
+      Dom.show( slot , text !== "" );
+    } );
+  },
+
+  // Seconds into the shortest sensible unit: "10m", "4d", "3mo". The server
+  // sends seconds because it is the only unit that needs no agreement; which
+  // one to print is a question about reading, so it is answered here.
+  formatInterval( seconds ) {
+    const value = Number( seconds );
+    if ( !Number.isFinite( value ) || value <= 0 ) return "";
+    const minutes = value / 60;
+    // Never round down to zero: the shortest delay the scheduler produces is
+    // ten minutes, and a button reading "0m" would be nonsense.
+    if ( minutes < 60 ) return I18n.format( "train.interval_minutes" , { count: Math.max( 1 , Math.round( minutes ) ) } );
+    const hours = minutes / 60;
+    if ( hours < 24 ) return I18n.format( "train.interval_hours" , { count: Math.round( hours ) } );
+    const days = hours / 24;
+    if ( days < 30 ) return I18n.format( "train.interval_days" , { count: Math.round( days ) } );
+    const months = days / 30.44;
+    if ( months < 12 ) return I18n.format( "train.interval_months" , { count: Math.round( months ) } );
+    return I18n.format( "train.interval_years" , { count: Math.round( days / 365 ) } );
+  },
+
   renderProgress() {
+    // Both of these measure one run, and the endless deck has no runs in it:
+    // a bar that filled up and reset every twenty cards would be counting
+    // something the user has explicitly asked not to have. The totals beside
+    // them stay, because those are about the words rather than the sitting.
+    const endless = this.endless();
+    Dom.show( Dom.get( "deck-progress" ) , !endless );
+    Dom.show( Dom.get( "deck-remaining" ) , !endless );
+    if ( endless ) return;
+
     const bar = Dom.get( "deck-progress-fill" );
     if ( !bar ) return;
     const total = this.queue.length || 1;
@@ -394,12 +570,18 @@ const Trainer = {
 
   // A hint exists only for a direction that is bound to something, so an
   // unused direction has nothing to light up.
+  //
+  // What it says has to match the button the same gesture answers: with the
+  // grades on, the "don't know" direction is the Again button, so the hint
+  // reads Again rather than "Not known". The colour still follows the outcome
+  // itself, which is why the class and the key are looked up separately.
   buildHint( direction ) {
     const outcome = this.outcomeFor[ direction ];
     if ( !outcome ) return null;
+    const named = this.graded() && outcome === "unknown" ? "again" : outcome;
     return Dom.el( "div" , {
       class: "swipe-hint swipe-hint-" + outcome,
-      text: I18n.get( "train.hint_" + outcome ),
+      text: I18n.get( "train.hint_" + named ),
       attrs: { "data-direction": direction },
     } );
   },
@@ -581,8 +763,13 @@ const Trainer = {
       left:  "translate(-120vw, 0) rotate(-22deg)",
       up:    "translate(0, -110vh) rotate(0deg)",
       down:  "translate(0, 110vh) rotate(0deg)",
+      // Hard and Good have no direction on them, so the card shrinks away
+      // where it stands instead of borrowing a neighbour's exit. Sending it
+      // left or right would say the card had been swiped that way, and the
+      // next thing the user tries is that swipe.
+      none:  "scale(0.88)",
     };
-    node.style.transform = offsets[ direction ] || offsets.up;
+    node.style.transform = offsets[ direction ] || offsets.none;
   },
 
   handleTap() {
@@ -595,9 +782,25 @@ const Trainer = {
     this.render();
   },
 
-  // handleOutcome is the one place a swipe, a button press and a key press
-  // all end up, so the three input methods cannot drift apart.
-  async handleOutcome( direction , node ) {
+  // handleOutcome takes the direction a gesture or an arrow key arrived on
+  // and turns it into the answer it is bound to. A direction nothing is bound
+  // to is dropped here rather than deeper down, which is what keeps the
+  // fourth direction inert.
+  handleOutcome( direction , node ) {
+    if ( this.awaitingContinue ) {
+      this.advance();
+      return;
+    }
+    const outcome = this.outcomeFor[ direction ];
+    if ( !outcome ) return;
+    this.answer( outcome , node );
+  },
+
+  // answer is the one place a swipe, a button press and a key press all end
+  // up, so the input methods cannot drift apart. It takes the outcome rather
+  // than the direction because two of the grades have no direction: Hard and
+  // Good are reachable only from a button or a number key.
+  async answer( outcome , node ) {
     // Once the answer is showing, the card has already been recorded. Any
     // further input means "move on" rather than a second opinion.
     if ( this.awaitingContinue ) {
@@ -607,12 +810,18 @@ const Trainer = {
     if ( this.busy ) return;
 
     const card = this.current();
-    if ( !card ) return;
-    const outcome = this.outcomeFor[ direction ];
-    if ( !outcome ) return;
+    if ( !card || !outcome ) return;
+
+    // Null for Hard and Good, which flyAway reads as "leave without going
+    // anywhere". Everything else exits the way the thumb would have sent it,
+    // whether or not a thumb was involved.
+    const direction = this.directionOf( outcome );
 
     this.busy = true;
-    Shell.buzz( outcome === "unknown" ? 22 : 12 );
+    // A miss gets the longest buzz and a struggle the middling one: the
+    // feedback is a readout of the answer, so it should not be flat across
+    // answers that are not.
+    this.busyBuzz( outcome );
 
     const top = node || Dom.get( "card-stack" ).lastElementChild;
 
@@ -632,8 +841,8 @@ const Trainer = {
     // because setting a word aside means not engaging with it at all; a card
     // already turned over, whose answer has been read; a hold of zero, which
     // is the user saying they would rather not be shown the answer they did
-    // not ask for; and "I know it" when that answer has been excused from the
-    // reveal in the settings.
+    // not ask for; and an answer that says the word was known, when those
+    // have been excused from the reveal in the settings.
     if ( outcome === "skip" || this.revealed || hold === 0 || this.excusedFromReveal( outcome ) ) {
       if ( top ) this.flyAway( top , direction );
       window.setTimeout( function () { self.advance(); } , 180 );
@@ -644,6 +853,7 @@ const Trainer = {
     // so the answer is read before it leaves.
     this.revealed = true;
     this.awaitingContinue = true;
+    this.pendingExit = true;
     this.pendingDirection = direction;
     if ( top ) this.settle( top );
     this.render();
@@ -659,15 +869,17 @@ const Trainer = {
     window.clearTimeout( this.advanceTimer );
     this.advanceTimer = null;
 
-    const direction = this.pendingDirection;
     const stack = Dom.get( "card-stack" );
-    if ( direction && stack && stack.lastElementChild ) {
-      this.flyAway( stack.lastElementChild , direction );
+    if ( this.pendingExit && stack && stack.lastElementChild ) {
+      // A null direction is the point of the flag: a card answered Hard or
+      // Good still has to leave, it just has nowhere in particular to go.
+      this.flyAway( stack.lastElementChild , this.pendingDirection );
     }
 
     this.at += 1;
     this.revealed = false;
     this.awaitingContinue = false;
+    this.pendingExit = false;
     this.pendingDirection = null;
     this.busy = false;
 
@@ -687,19 +899,28 @@ const Trainer = {
 
   bindButtons() {
     const self = this;
-    // Bound by outcome, not by direction: the direction is looked up when the
-    // button is pressed, so changing the mapping never leaves a stale button.
+    // Every button is bound to an outcome, never to a direction: the
+    // direction is looked up when the button is pressed, so changing the
+    // mapping -- or turning the grades on, which changes what the rightward
+    // one means -- never leaves a stale button behind.
+    //
+    // Both rows are wired once here even though only one of them is ever on
+    // screen. A hidden button cannot be clicked, and binding on every render
+    // is how a handler ends up attached twice.
     const wire = function ( id , outcome ) {
       const button = Dom.get( id );
       if ( !button ) return;
       button.addEventListener( "click" , function () {
         const stack = Dom.get( "card-stack" );
-        self.handleOutcome( self.directionOf( outcome ) , stack ? stack.lastElementChild : null );
+        self.answer( outcome , stack ? stack.lastElementChild : null );
       } );
     };
     wire( "action-unknown" , "unknown" );
     wire( "action-skip" , "skip" );
     wire( "action-known" , "known" );
+
+    this.gradeButtons.forEach( function ( entry ) { wire( entry.id , entry.outcome ); } );
+    wire( "grade-skip" , "skip" );
 
     const reveal = Dom.get( "action-reveal" );
     if ( reveal ) reveal.addEventListener( "click" , function () { self.handleTap(); } );
@@ -786,6 +1007,18 @@ const Trainer = {
         event.preventDefault();
         self.handleOutcome( direction , top );
         return;
+      }
+
+      // 1 to 4 across the grades, soonest first, which is what Anki does and
+      // what anyone arriving from it will try. They are the only way to reach
+      // Hard and Good without a mouse, so they exist for more than habit.
+      if ( self.graded() ) {
+        const slot = event.key.length === 1 ? "1234".indexOf( event.key ) : -1;
+        if ( slot !== -1 ) {
+          event.preventDefault();
+          self.answer( self.gradeButtons[ slot ].outcome , top );
+          return;
+        }
       }
       if ( event.key === " " || event.key === "Enter" ) {
         event.preventDefault();
