@@ -8,6 +8,7 @@ package routes
 import (
 	rand "math/rand"
 	sort "sort"
+	strconv "strconv"
 	strings "strings"
 	time "time"
 
@@ -82,11 +83,32 @@ func localDate( submitted string , now time.Time ) ( result string ) {
 	return
 }
 
+// maximumExtraNewWords bounds what one press of the "more words" button can
+// ask for. The button asks for ten; this is only here so that a hand-written
+// URL cannot ask for the whole corpus in one response.
+const maximumExtraNewWords = 100
+
+// extraNewWords reads the "more" parameter: a number of new words to add on
+// top of the deck, over and above the daily limit.
+func extraNewWords( raw string ) ( count int ) {
+	value , err := strconv.Atoi( strings.TrimSpace( raw ) )
+	if err != nil || value <= 0 { return }
+	count = value
+	if count > maximumExtraNewWords { count = maximumExtraNewWords }
+	return
+}
+
 // GetDeck builds the next run of cards.
 //
 // Due reviews come first and are never withheld -- capping them is how a
 // backlog turns permanent -- and new words fill whatever is left, up to the
 // daily limit the user set.
+//
+// ?more=N is the exception, and the one the empty screen's button uses: N new
+// words regardless of the limit. That is not a hole in the pacing. The limit
+// exists to stop someone being handed more new words than they meant to take
+// on; a person who has been told there is nothing left and pressed a button
+// asking for ten more has meant to take them on.
 func ( handlers *Handlers ) GetDeck( c fiber.Ctx ) ( err error ) {
 	user := security.UserFrom( c )
 	now := time.Now().UTC()
@@ -143,6 +165,11 @@ func ( handlers *Handlers ) GetDeck( c fiber.Ctx ) ( err error ) {
 	if settings.DailyNewLimit == 0 { allowance = room }
 	if allowance < 0 { allowance = 0 }
 	if room > allowance { room = allowance }
+
+	// An explicit request overrides both caps, the batch size along with the
+	// daily limit: the number on the button is the number that arrives, and a
+	// run that is a few cards longer than usual is what was asked for.
+	if extra := extraNewWords( c.Query( "more" ) ); extra > 0 { room = extra }
 
 	if room > 0 {
 		random := rand.New( rand.NewSource( now.UnixNano() ) )

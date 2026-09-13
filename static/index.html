@@ -69,10 +69,16 @@
           <p class="deck-help deck-help-keyboard" data-i18n="train.keyboard_help"></p>
         </div>
 
+        <!-- Both ways on from an empty deck: keep going here, or go and
+             change what a run is made of. train.js hides the button when
+             there is nothing new left to offer. -->
         <div id="deck-empty" class="empty-state" hidden>
           <h2 id="deck-empty-heading"></h2>
           <p id="deck-empty-body"></p>
-          <p><a href="/settings.html" data-i18n="train.empty_action"></a></p>
+          <div class="empty-actions">
+            <button type="button" id="deck-more" hidden></button>
+            <a href="/settings.html" data-i18n="train.empty_action"></a>
+          </div>
         </div>
       </div>
     </section>

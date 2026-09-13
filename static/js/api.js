@@ -93,7 +93,12 @@ const Api = {
 
   // --- training ---------------------------------------------------------
 
-  deck()                       { return this.request( "/api/deck?date=" + this.today() ); },
+  // extra, when given, asks for that many new words on top of the deck,
+  // ignoring the daily limit. Only the empty screen's button passes it.
+  deck( extra ) {
+    const more = Number( extra ) > 0 ? "&more=" + Math.floor( Number( extra ) ) : "";
+    return this.request( "/api/deck?date=" + this.today() + more );
+  },
   review( word , outcome )     { return this.post( "/api/review" , { word: word , outcome: outcome , date: this.today() } ); },
   cards( status )              { return this.request( "/api/cards?status=" + encodeURIComponent( status ) ); },
   setCardStatus( word , status ) { return this.post( "/api/cards/status" , { word: word , status: status } ); },

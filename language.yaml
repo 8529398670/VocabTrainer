@@ -66,8 +66,12 @@ train:
   hint_unknown: "Not known"
   hint_skip: "Skipped"
   empty_heading: "Nothing due right now"
-  empty_body: "You have cleared the words that were due and today's new words. Come back later, or raise the daily limit in Settings."
+  empty_body: "You have cleared the words that were due and today's new words. Take another handful whenever you like, or come back later."
   empty_action: "Open settings"
+  # {count} is how many words the button asks for -- train.js decides the
+  # number, so it cannot disagree with the wording here.
+  empty_more: "{count} more new words"
+  empty_more_none: "That is every word at this reading level. Raise the level in Settings to meet new ones."
   loading: "Loading words…"
   # {known}, {unknown} and {skip} are filled in with the directions chosen in
   # Settings, so this line stays true whichever way round they are.
@@ -146,6 +150,14 @@ settings:
   swipe_right: "Swipe right"
   # {direction} is the one direction no answer is bound to.
   swipe_unused: "Swiping {direction} does nothing."
+  speech_heading: "Pronunciation"
+  speech_help: "The speaker on each card reads the word aloud using a voice already on this device. Which voices are on offer is up to the device, so a voice chosen here may not exist on another one -- that one falls back to its own default."
+  speech_voice_label: "Voice"
+  speech_voice_auto: "Whatever this device uses"
+  speech_preview: "Hear it"
+  # The word the preview button says. Any word will do; a long one shows more
+  # of the voice than a short one.
+  speech_sample: "vocabulary"
   practice_heading: "What to practise"
   practice_help: "Which words a run is built from."
   practice_mixed: "Everything due, plus new words"

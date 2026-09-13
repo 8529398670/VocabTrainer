@@ -53,9 +53,56 @@ const Settings = {
     } );
     this.buildNumberSelect( "daily-new" , this.dailyNewChoices , "settings.daily_new_unlimited" );
     this.buildNumberSelect( "batch-size" , this.batchChoices , "" );
+    // Voices arrive asynchronously in some browsers, and a select built
+    // before they land is a select with nothing in it.
+    await Speech.ready();
+    this.buildVoiceSelect();
     this.fill();
     this.showExport();
     this.bind();
+  },
+
+  // The voice picker, or nothing at all.
+  //
+  // The card is hidden outright when this device has no speech engine or no
+  // English voices, rather than shown holding one dead option: a setting that
+  // cannot change anything is worse than an absent one.
+  //
+  // A saved voice this device does not have is still listed, and listed under
+  // its own name. Dropping it would mean the select silently showed something
+  // else, and the next save would overwrite a choice made on another device
+  // that the user never asked to change.
+  buildVoiceSelect() {
+    const card = Dom.get( "speech-card" );
+    const select = Dom.get( "speech-voice" );
+    if ( !card || !select ) return;
+
+    const voices = Speech.supported() ? Speech.choices() : [];
+    const heading = I18n.get( "settings.speech_heading" );
+    if ( voices.length === 0 || heading === "" ) { Dom.show( card , false ); return; }
+    Dom.show( card , true );
+
+    Dom.clear( select );
+    const auto = I18n.get( "settings.speech_voice_auto" );
+    if ( auto !== "" ) select.appendChild( Dom.el( "option" , { text: auto , attrs: { value: "" } } ) );
+
+    const saved = this.settings.speech_voice || "";
+    let listed = false;
+    voices.forEach( function ( voice ) {
+      if ( voice.name === saved ) listed = true;
+      // "Arthur" does not say which English it speaks, so the tag is worth
+      // the room. Some platforms have already said it -- macOS reports
+      // "Daniel (English (United Kingdom))" -- and adding a second bracket
+      // to those is noise, so the tag goes on only where there is not one.
+      const qualified = voice.name.indexOf( "(" ) !== -1;
+      select.appendChild( Dom.el( "option" , {
+        text: qualified ? voice.name : voice.name + " (" + voice.lang + ")",
+        attrs: { value: voice.name },
+      } ) );
+    } );
+    if ( saved !== "" && listed === false ) {
+      select.appendChild( Dom.el( "option" , { text: saved , attrs: { value: saved } } ) );
+    }
   },
 
   // The download link, and whether there is one.
@@ -120,6 +167,7 @@ const Settings = {
     Dom.get( "daily-new" ).value = String( current.daily_new_limit );
     Dom.get( "batch-size" ).value = String( current.batch_size );
     Dom.get( "known-skips-reveal" ).checked = !!current.known_skips_reveal;
+    Dom.get( "speech-voice" ).value = current.speech_voice || "";
     Dom.get( "show-examples" ).checked = !!current.show_examples;
     Dom.get( "haptics" ).checked = !!current.haptics;
     Dom.get( "theme-dark" ).checked = current.theme === "dark";
@@ -198,6 +246,18 @@ const Settings = {
       } );
     } );
 
+    // Hearing the voice is the only way to choose one, so the preview speaks
+    // whatever is selected right now rather than what is saved. Same reason
+    // the theme switch below applies before the save does.
+    const preview = Dom.get( "speech-preview" );
+    if ( preview ) {
+      preview.addEventListener( "click" , function () {
+        const sample = I18n.get( "settings.speech_sample" );
+        if ( sample === "" ) return;
+        Speech.speak( sample , { voiceName: Dom.get( "speech-voice" ).value } );
+      } );
+    }
+
     // The theme switch applies immediately rather than on save: it is the one
     // setting whose effect is the page you are looking at, so waiting for a
     // round trip to see it would be strange.
@@ -230,6 +290,7 @@ const Settings = {
       swipe_known:     Dom.get( "swipe-known" ).value,
       reveal_hold_ms:  Number( Dom.get( "reveal-hold" ).value ),
       known_skips_reveal: Dom.get( "known-skips-reveal" ).checked,
+      speech_voice:    Dom.get( "speech-voice" ).value,
       daily_new_limit: Number( Dom.get( "daily-new" ).value ),
       batch_size:      Number( Dom.get( "batch-size" ).value ),
       show_examples:   Dom.get( "show-examples" ).checked,

@@ -101,8 +101,11 @@ const Trainer = {
     return !!this.settings && this.settings.practice_mode === "unknown_only";
   },
 
-  async refill() {
-    const payload = await Api.deck();
+  // extra, when given, is a number of new words to add on top of whatever the
+  // deck would normally hold, ignoring the daily limit. Only loadMore() passes
+  // it; a normal refill leaves the pacing alone.
+  async refill( extra ) {
+    const payload = await Api.deck( extra );
     if ( payload.settings ) {
       this.settings = payload.settings;
       Shell.settings = payload.settings;
@@ -110,6 +113,7 @@ const Trainer = {
     }
     this.queue = payload.cards || [];
     this.at = 0;
+    if ( this.queue.length > 0 ) this.exhausted = false;
     this.updateCounts( payload.counts );
   },
 
@@ -135,9 +139,16 @@ const Trainer = {
       Dom.show( Dom.get( "deck-empty" ) , true );
       Dom.show( Dom.get( "deck-controls" ) , false );
       Dom.show( Dom.get( "deck-meta" ) , false );
+      // The stack has to go, not just be emptied. It shares its grid cells
+      // with the empty state and is position: relative, which puts it above
+      // an unpositioned sibling however the two are ordered in the markup --
+      // so an empty stack left in place is an invisible sheet over the empty
+      // screen, and every button and link on it stops answering.
+      Dom.show( stack , false );
       return;
     }
 
+    Dom.show( stack , true );
     Dom.show( Dom.get( "deck-empty" ) , false );
     Dom.show( Dom.get( "deck-controls" ) , true );
     Dom.show( Dom.get( "deck-meta" ) , true );
@@ -216,15 +227,60 @@ const Trainer = {
   // is a setting rather than patience.
   renderEmpty() {
     const practising = this.practising();
-    const write = function ( id , key ) {
-      const element = Dom.get( id );
+    const write = function ( element , text ) {
       if ( !element ) return;
-      const text = I18n.get( key );
       Dom.text( element , text );
       Dom.show( element , text !== "" );
     };
-    write( "deck-empty-heading" , practising ? "train.empty_practice_heading" : "train.empty_heading" );
-    write( "deck-empty-body" , practising ? "train.empty_practice_body" : "train.empty_body" );
+
+    let bodyKey = "train.empty_body";
+    if ( practising ) bodyKey = "train.empty_practice_body";
+    else if ( this.exhausted ) bodyKey = "train.empty_more_none";
+
+    write( Dom.get( "deck-empty-heading" ) ,
+      I18n.get( practising ? "train.empty_practice_heading" : "train.empty_heading" ) );
+    write( Dom.get( "deck-empty-body" ) , I18n.get( bodyKey ) );
+
+    // Nothing new to offer in either of the two cases where there is nothing
+    // new to offer: the not-known deck draws no new words by design, and an
+    // exhausted level has none left at all.
+    const more = Dom.get( "deck-more" );
+    if ( more ) {
+      const label = I18n.format( "train.empty_more" , { count: this.MORE_WORDS } );
+      Dom.text( more , label );
+      Dom.show( more , label !== "" && !practising && !this.exhausted );
+      more.disabled = false;
+    }
+  },
+
+  // How many new words the button on the empty screen asks for. The number
+  // goes into the label through I18n.format rather than being written into
+  // the wording, so the two cannot disagree.
+  MORE_WORDS: 10,
+
+  // Set when a request for more words came back with none. The level is spent
+  // -- there is no point offering the button again, and "come back later" is
+  // the wrong thing to say about a deck that will never refill on its own.
+  exhausted: false,
+
+  // The empty screen's way out: another handful of new words, past the daily
+  // limit, without having to go and change a setting. The limit is there to
+  // pace someone who has not asked; this is someone who has.
+  async loadMore() {
+    const button = Dom.get( "deck-more" );
+    if ( button ) {
+      if ( button.disabled ) return;
+      button.disabled = true;
+    }
+    try {
+      await this.refill( this.MORE_WORDS );
+      this.exhausted = this.queue.length === 0;
+      this.renderControls();
+      this.render();
+    } catch ( error ) {
+      Shell.showError( error );
+      if ( button ) button.disabled = false;
+    }
   },
 
   renderPracticeBadge() {
@@ -296,14 +352,14 @@ const Trainer = {
   // from ever being painted over the text underneath it.
   buildCard( card , revealed , isBehind ) {
     const node = Dom.el( "article" , { class: "swipe-card" + ( isBehind ? " is-behind" : "" ) } );
-    node.appendChild( this.buildTop( card ) );
+    node.appendChild( this.buildTop( card , revealed ) );
     node.appendChild( this.buildFace( card , revealed ) );
     const foot = this.buildFoot();
     if ( foot ) node.appendChild( foot );
     return node;
   },
 
-  buildTop( card ) {
+  buildTop( card , revealed ) {
     const top = Dom.el( "div" , { class: "card-top" } );
     top.appendChild( this.buildBadges( card ) );
     const self = this;
@@ -311,7 +367,21 @@ const Trainer = {
       const hint = self.buildHint( direction );
       if ( hint ) top.appendChild( hint );
     } );
+
+    // The speaker sits in the corner of the top band rather than beside the
+    // word: next to display type it competes with the one thing on the card
+    // the reader is supposed to be looking at. It is built only when the word
+    // is actually on screen -- in "show the meaning, hide the word" mode a
+    // button on a face-down card would offer to read out the answer.
+    if ( this.wordIsShowing( revealed ) ) {
+      const speak = Speech.button( card.word );
+      if ( speak ) top.appendChild( speak );
+    }
     return top;
+  },
+
+  wordIsShowing( revealed ) {
+    return this.settings.reveal_mode !== "word_hidden" || !!revealed;
   },
 
   buildFoot() {
@@ -367,12 +437,12 @@ const Trainer = {
       head.appendChild( Dom.el( "p" , { class: "card-prompt-definition" , text: primary.definition } ) );
       if ( revealed ) {
         body.appendChild( Dom.el( "div" , { class: "card-divider" } ) );
-        body.appendChild( this.buildWord( card.word ) );
+        body.appendChild( Dom.el( "p" , { class: "card-word" , text: card.word } ) );
         if ( senses.length > 1 ) body.appendChild( this.buildSenses( senses.slice( 1 ) ) );
         this.appendExample( body , primary );
       }
     } else {
-      head.appendChild( this.buildWord( card.word ) );
+      head.appendChild( Dom.el( "p" , { class: "card-word" , text: card.word } ) );
       if ( revealed ) {
         body.appendChild( Dom.el( "div" , { class: "card-divider" } ) );
         body.appendChild( this.buildSenses( senses ) );
@@ -385,26 +455,6 @@ const Trainer = {
     const hint = this.buildFaceHint( revealed );
     if ( hint ) face.appendChild( hint );
     return face;
-  },
-
-  // The word, with the button that pronounces it.
-  //
-  // The button is built beside the word rather than anywhere else on the card
-  // for two reasons. Next to the word it is obvious what it will read out,
-  // which a control in a corner is not; and in "show the meaning, hide the
-  // word" mode it comes and goes with the word itself, so there is never a
-  // button sitting on a face-down card offering to speak the answer.
-  //
-  // The spacer opposite it is dead weight that earns its place. Without it
-  // the word-and-button pair is centred and the word is not, which is a
-  // visible half-centimetre of lean on every card.
-  buildWord( word ) {
-    const line = Dom.el( "div" , { class: "card-word-line" } );
-    const speak = Speech.button( word );
-    if ( speak ) line.appendChild( Dom.el( "span" , { class: "card-word-spacer" , attrs: { "aria-hidden": "true" } } ) );
-    line.appendChild( Dom.el( "p" , { class: "card-word" , text: word } ) );
-    if ( speak ) line.appendChild( speak );
-    return line;
   },
 
   // The pill at the bottom of the face: what the next tap will do. It sits
@@ -484,11 +534,11 @@ const Trainer = {
       self.setHint( node , direction , self.hintOpacity( strength[ direction ] ) );
       if ( strength[ direction ] > loudest ) loudest = strength[ direction ];
     } );
-    // The badges share the top band with three of the hints, so the band is
-    // handed from one to the other rather than shared: the badges have faded
-    // out by the point the first hint fades in, and the two are never drawn
-    // over each other at any distance.
-    this.setBadgeOpacity( node , Math.max( 0 , 1 - loudest / this.HANDOVER ) );
+    // The badges and the speaker share the top band with three of the hints,
+    // so the band is handed from one to the other rather than shared: both
+    // have faded out by the point the first hint fades in, and nothing is
+    // ever drawn over anything else at any distance.
+    this.setTopOpacity( node , Math.max( 0 , 1 - loudest / this.HANDOVER ) );
   },
 
   // How far into a drag the top band changes hands. Below this the badges are
@@ -506,9 +556,12 @@ const Trainer = {
     if ( hint ) hint.style.opacity = String( opacity );
   },
 
-  setBadgeOpacity( node , opacity ) {
-    const badges = node.querySelector( ".card-badges" );
-    if ( badges ) badges.style.opacity = String( opacity );
+  // Everything in the top band that is not a hint. The speaker goes with the
+  // badges because it sits where the rightward hint arrives.
+  setTopOpacity( node , opacity ) {
+    Dom.all( ".card-badges, .card-speak" , node ).forEach( function ( element ) {
+      element.style.opacity = String( opacity );
+    } );
   },
 
   settle( node ) {
@@ -518,7 +571,7 @@ const Trainer = {
     [ "left" , "right" , "up" , "down" ].forEach( function ( direction ) {
       self.setHint( node , direction , 0 );
     } );
-    this.setBadgeOpacity( node , 1 );
+    this.setTopOpacity( node , 1 );
   },
 
   flyAway( node , direction ) {
@@ -650,6 +703,9 @@ const Trainer = {
 
     const reveal = Dom.get( "action-reveal" );
     if ( reveal ) reveal.addEventListener( "click" , function () { self.handleTap(); } );
+
+    const more = Dom.get( "deck-more" );
+    if ( more ) more.addEventListener( "click" , function () { self.loadMore(); } );
   },
 
   // A page restored from the back/forward cache never runs DOMContentLoaded

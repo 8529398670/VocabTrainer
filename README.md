@@ -75,12 +75,15 @@ Each card shows one side and hides the other. Which side is a setting:
 - **Show the meaning, hide the word** — harder, and the direction that helps
   with recall of the word itself.
 
-Every card carries a small speaker beside the word. Pressing it reads the word
-aloud through the device's own speech engine — the same one behind VoiceOver
-and TalkBack. Nothing is downloaded and nothing is sent anywhere; the word
-never leaves the device. The button is not drawn at all on a browser with no
-speech engine, and in "show the meaning, hide the word" mode it appears only
-once the word does, so it can never read out an answer you have not seen.
+Every card carries a small speaker in its top corner. Pressing it reads the
+word aloud through the device's own speech engine — the same one behind
+VoiceOver and TalkBack. Nothing is downloaded and nothing is sent anywhere;
+the word never leaves the device. Settings lists the English voices the device
+has and remembers which one you picked; a voice the *next* device has never
+heard of falls back to whatever that one would have used. The button is not
+drawn at all on a browser with no speech engine, and in "show the meaning,
+hide the word" mode it appears only once the word does, so it can never read
+out an answer you have not seen.
 
 Tap reveals the hidden side. Then:
 
@@ -130,6 +133,13 @@ relearning works — and climbs the early intervals again from the start.
 
 Reviews that are due are never withheld; only *new* words are capped, by the
 daily limit in Settings. Capping reviews is how a backlog becomes permanent.
+
+Run out and the screen offers **ten more new words**, over and above the daily
+limit, so a session can carry on as long as you want it to. That is not a hole
+in the pacing: the limit is there to stop someone being handed more new words
+than they meant to take on, and pressing a button that asks for ten is meaning
+to take them on. Press it until the reading level itself runs dry, at which
+point the screen says so rather than offering again.
 
 ### The lists
 

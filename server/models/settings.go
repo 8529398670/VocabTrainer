@@ -2,6 +2,7 @@ package models
 
 import (
 	binary "encoding/binary"
+	strings "strings"
 	time "time"
 
 	corpus "vocabtrainer/server/corpus"
@@ -108,6 +109,17 @@ type Settings struct {
 	// nobody's app changes underneath them on upgrade.
 	KnownSkipsReveal bool `json:"known_skips_reveal"`
 
+	// SpeechVoice names the voice the browser should use when it reads a word
+	// aloud, as reported by speechSynthesis.getVoices(). Empty means "whatever
+	// this device would use anyway", which is the default and the only sane
+	// one: the voices on offer are the operating system's, so there is no name
+	// this server could pick that every device would recognise.
+	//
+	// Stored rather than kept in the browser because the point of a setting is
+	// that it follows you to the next device. A name that means nothing there
+	// simply falls back to the default -- see Speech.voice() in speech.js.
+	SpeechVoice string `json:"speech_voice"`
+
 	// AutoAdvanceMs is schema 0's version of RevealHoldMs, in which zero
 	// meant "wait for a tap". It is kept only so migrate() can read it, and
 	// is cleared -- and so omitted from the wire -- on the next save.
@@ -194,6 +206,23 @@ func ( settings *Settings ) normalise() {
 	if settings.DailyNewLimit < 0 || settings.DailyNewLimit > 500 { settings.DailyNewLimit = defaultDailyNewLimit }
 	if settings.RevealHoldMs < RevealHoldUntilTap || settings.RevealHoldMs > maximumRevealHoldMs { settings.RevealHoldMs = defaultRevealHoldMs }
 	if settings.Theme != "light" && settings.Theme != "dark" { settings.Theme = "light" }
+	settings.normaliseVoice()
+	return
+}
+
+// normaliseVoice keeps the stored voice name to something a browser could
+// plausibly have reported. It is not validated against a list, because the
+// list belongs to the device and this server has never seen it -- an
+// unrecognised name is handled where it is used, by falling back to the
+// default voice. The cap is only so that the field cannot be used to park
+// arbitrary data in the settings record.
+const maximumVoiceNameLength = 120
+
+func ( settings *Settings ) normaliseVoice() {
+	settings.SpeechVoice = strings.TrimSpace( settings.SpeechVoice )
+	if runes := []rune( settings.SpeechVoice ); len( runes ) > maximumVoiceNameLength {
+		settings.SpeechVoice = string( runes[ :maximumVoiceNameLength ] )
+	}
 	return
 }
 

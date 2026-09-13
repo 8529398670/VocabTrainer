@@ -54,6 +54,22 @@
           </div>
         </div>
 
+        <!--
+          Hidden wholesale by settings.js on a device with no speech engine
+          or no English voices: a picker with nothing in it is worse than no
+          picker. The preview button is type="button" so it cannot submit.
+        -->
+        <div class="card" id="speech-card" hidden>
+          <h2 data-i18n="settings.speech_heading"></h2>
+          <p class="muted" data-i18n="settings.speech_help"></p>
+          <div class="field">
+            <label for="speech-voice" data-i18n="settings.speech_voice_label"></label>
+            <select id="speech-voice"></select>
+          </div>
+          <button type="button" class="secondary" id="speech-preview"
+                  data-i18n="settings.speech_preview"></button>
+        </div>
+
         <div class="card">
           <h2 data-i18n="settings.swipe_heading"></h2>
           <p class="muted" data-i18n="settings.swipe_help"></p>
@@ -169,6 +185,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/speech.js"></script>
   <script src="/js/settings.js"></script>
 </body>
 </html>

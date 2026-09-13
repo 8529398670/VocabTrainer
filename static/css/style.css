@@ -578,12 +578,8 @@ body.screen-train #signed-out:not([hidden]) {
    margin is dead weight -- and in the head it is worse than that: the margin
    counts toward scrollHeight, which put a scrollbar on a box holding one
    word. Paragraphs nested inside a sense keep their margins; that is what
-   separates a definition from its example.
-
-   .card-word-line is in the list because the word is a paragraph inside it
-   rather than a direct child of either half, so it would otherwise be the one
-   line on the card still carrying the document default. */
-.card-head > p, .card-body > p, .card-word-line > p { margin: 0; }
+   separates a definition from its example. */
+.card-head > p, .card-body > p { margin: 0; }
 
 /* No scrollbar furniture on either half of the card. A classic scrollbar is
    15px wide and takes that width out of the card's layout, which on the train
@@ -646,58 +642,6 @@ body.screen-train #signed-out:not([hidden]) {
 
 .card-word.fits-one-line { white-space: nowrap; }
 
-/* The word and the button that says it out loud, on one line.
-
-   --speak-size is shared by the button and by the empty span opposite it.
-   The pair is what keeps the word itself centred: centre a row holding a word
-   and a button and you have centred the pair, which leaves the word sitting
-   visibly off to one side on every card. */
-.card-word-line {
-  --speak-size: 2.4rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  width: 100%;
-  min-width: 0;
-}
-
-/* Without this the word is a flex item at its max-content width and refuses
-   to shrink, so Fit measures a box as wide as the text it holds and finds
-   nothing to scale. min-width: auto is the default for a flex item and is the
-   whole of the problem. */
-.card-word-line > .card-word { min-width: 0; }
-
-.card-speak,
-.card-word-spacer {
-  flex: 0 0 var(--speak-size);
-  width: var(--speak-size);
-  height: var(--speak-size);
-}
-
-/* Deliberately under the 44px touch target the buttons elsewhere keep to.
-   Every pixel of this button is a pixel of the card that no longer swipes --
-   it has to swallow the gesture, or pressing it would answer the card -- so
-   a bigger target here is paid for out of the main interaction. */
-.card-speak {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 0;
-  padding: 0;
-  color: var(--fg-muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  /* The card refuses every gesture so that a swipe can never turn into a page
-     scroll (see .swipe-card). This one control asks for the browser's
-     ordinary fast tap back. */
-  touch-action: manipulation;
-}
-
-.card-speak svg { width: 1.15rem; height: 1.15rem; display: block; }
-.card-speak:hover { color: var(--fg); }
-.card-speak.is-speaking { color: var(--accent); border-color: var(--accent); }
 
 .card-prompt-definition {
   font-size: clamp(0.95rem, 4.6vw, 1.35rem);
@@ -750,7 +694,48 @@ body.screen-train #signed-out:not([hidden]) {
   flex-wrap: wrap;
   justify-content: center;
   min-height: 1.4rem;
+  /* Room for the speaker at the right, taken from both sides so the badges
+     stay centred on the card rather than centred on what is left of it. A
+     long level name wraps to a second line before it reaches the button. */
+  padding: 0 2.4rem;
 }
+
+/* The button that reads the word out loud, in the corner of the top band.
+   Beside the word it competed with the one piece of text on the card the
+   reader is meant to be looking at; up here it is out of the way and still
+   plainly attached to the card rather than to the screen.
+
+   It shares the band with the rightward swipe hint, which is why train.js
+   fades it out with the badges as a drag begins -- see setTopOpacity.
+
+   Deliberately under the 44px touch target the buttons elsewhere keep to:
+   every pixel of it is a pixel of the card that no longer swipes, because it
+   has to swallow the gesture or pressing it would answer the card. */
+.card-speak {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 2.2rem;
+  height: 2.2rem;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  /* The card refuses every gesture so that a swipe can never turn into a page
+     scroll (see .swipe-card). This one control asks for the browser's
+     ordinary fast tap back. */
+  touch-action: manipulation;
+}
+
+.card-speak svg { width: 1.05rem; height: 1.05rem; display: block; }
+.card-speak:hover { color: var(--fg); }
+.card-speak.is-speaking { color: var(--accent); border-color: var(--accent); }
 
 .badge {
   font-size: 0.68rem;
@@ -982,6 +967,12 @@ button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    bor
 .setting-row:last-child { border-bottom: none; }
 .setting-row label { margin: 0; }
 
+/* A button sitting straight under a field inside a card, with no form between
+   them to supply the gap -- the preview button on the pronunciation card is
+   the one of these. Scoped to a direct child so the buttons inside a form,
+   which already have the form's gap, are left alone. */
+.card > .field + button { margin-top: 0.75rem; }
+
 .switch { flex: 0 0 auto; width: auto; min-height: 1.6rem; }
 
 .choice-list { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -1005,6 +996,26 @@ button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    bor
   padding: 2rem 1rem;
 }
 .empty-state h2 { color: var(--fg); }
+
+/* Stacked rather than side by side: the two are not a pair of equals -- one
+   carries on, the other leaves for another screen -- and a phone has the
+   height to spare on a screen holding three lines of text. */
+.empty-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* Subordinate to the button above it, and deliberately so: carrying on is
+   what most people want from this screen, and going to change a setting is
+   the answer for the few who do not. */
+.empty-actions a {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  text-underline-offset: 0.2em;
+}
 
 @media (min-width: 40rem) {
   body.app { padding-bottom: 0; padding-top: 0; }

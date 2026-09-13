@@ -50,17 +50,73 @@ const Speech = {
       && typeof window.SpeechSynthesisUtterance !== "undefined";
   },
 
-  // The best English voice on offer. An exact language match first, then any
-  // English at all, then nothing -- and nothing is a perfectly good answer,
-  // because leaving utterance.voice unset asks the platform for its default,
-  // which is usually the right one anyway.
-  voice() {
-    const wanted = this.LANGUAGE.toLowerCase();
+  // Resolves once there is a voice list to show, or once it is clear there
+  // will not be one. The training screen never needs this -- it speaks with
+  // whatever is loaded and the platform default covers the gap -- but the
+  // settings screen is listing the voices by name, and a list that fills in a
+  // moment after the select is built is a select that is silently wrong.
+  //
+  // The timeout is the whole point: on a device that reports no voices at all
+  // the event never fires, and waiting for it would hang the screen.
+  READY_TIMEOUT: 1200,
+
+  ready() {
+    const self = this;
+    return new Promise( function ( resolve ) {
+      if ( !self.supported() || self.voices.length > 0 ) { resolve( self.voices ); return; }
+      let settled = false;
+      const finish = function () {
+        if ( settled ) return;
+        settled = true;
+        window.speechSynthesis.removeEventListener( "voiceschanged" , finish );
+        resolve( self.voices );
+      };
+      window.speechSynthesis.addEventListener( "voiceschanged" , finish );
+      window.setTimeout( finish , self.READY_TIMEOUT );
+    } );
+  },
+
+  // The voices worth offering. English only: the corpus is an English word
+  // list whatever language the interface has been set to, and a device can
+  // carry two hundred voices of which all but a few dozen would mispronounce
+  // every card. Sorted by name so the list does not reshuffle between visits.
+  choices() {
+    return ( this.voices || [] )
+      .filter( function ( voice ) { return String( voice.lang || "" ).toLowerCase().indexOf( "en" ) === 0; } )
+      .slice()
+      .sort( function ( a , b ) { return String( a.name ).localeCompare( String( b.name ) ); } );
+  },
+
+  // The name the user picked, if they have picked one. Read from the shell
+  // rather than held here, so there is one copy of the settings and this file
+  // has nothing to keep in step.
+  preferredName() {
+    return ( Shell.settings && Shell.settings.speech_voice ) || "";
+  },
+
+  // Which voice to speak with. The name the user chose wins if this device
+  // has it; then an exact language match; then any English at all; then
+  // nothing -- and nothing is a perfectly good answer, because leaving
+  // utterance.voice unset asks the platform for its default, which is usually
+  // the right one anyway.
+  //
+  // A chosen name that this device does not have falls through the same way.
+  // That is deliberate rather than an error: the setting follows the user to
+  // a phone whose voices are its own, and the honest response is to read the
+  // word in some voice rather than to refuse.
+  voice( name ) {
     const list = this.voices || [];
+    const wanted = String( name === undefined ? this.preferredName() : name || "" );
+    if ( wanted !== "" ) {
+      const chosen = list.find( function ( voice ) { return voice.name === wanted; } );
+      if ( chosen ) return chosen;
+    }
+
+    const language = this.LANGUAGE.toLowerCase();
     const matching = function ( test ) {
       return list.find( function ( voice ) { return test( String( voice.lang || "" ).toLowerCase() ); } );
     };
-    return matching( function ( lang ) { return lang.replace( "_" , "-" ) === wanted; } )
+    return matching( function ( lang ) { return lang.replace( "_" , "-" ) === language; } )
       || matching( function ( lang ) { return lang.indexOf( "en" ) === 0; } )
       || null;
   },
@@ -69,12 +125,23 @@ const Speech = {
   // promise, no await, nothing between the click and the queued utterance.
   // Anything else and iOS decides the speech did not come from a gesture and
   // silently drops it.
-  speak( text , onFinish ) {
+  // options: { voiceName, onFinish }. voiceName is for the settings screen,
+  // which has to preview a choice that has not been saved yet; leave it out
+  // and the saved one is used.
+  speak( text , options ) {
     if ( !this.supported() ) return;
     const words = String( text || "" ).trim();
     if ( words === "" ) return;
 
-    const done = function () { if ( onFinish ) onFinish(); };
+    const settings = options || {};
+    let finished = false;
+    const done = function () {
+      // end and error both fire on some engines, and cancel() below can
+      // deliver a second one for an utterance already finished with.
+      if ( finished ) return;
+      finished = true;
+      if ( settings.onFinish ) settings.onFinish();
+    };
 
     try {
       // Pressing the button twice should re-read the word, not queue it
@@ -89,8 +156,14 @@ const Speech = {
       const utterance = new window.SpeechSynthesisUtterance( words );
       utterance.lang = this.LANGUAGE;
       utterance.rate = this.RATE;
-      const voice = this.voice();
-      if ( voice ) utterance.voice = voice;
+      const voice = this.voice( settings.voiceName );
+      if ( voice ) {
+        utterance.voice = voice;
+        // Say it in the voice's own language rather than the one asked for.
+        // An en-GB voice handed lang="en-US" is a mismatch some engines
+        // resolve by quietly swapping the voice back out again.
+        utterance.lang = voice.lang || this.LANGUAGE;
+      }
       utterance.addEventListener( "end" , done );
       utterance.addEventListener( "error" , done );
       window.speechSynthesis.speak( utterance );
@@ -164,7 +237,7 @@ const Speech = {
       event.stopPropagation();
       event.preventDefault();
       button.classList.add( "is-speaking" );
-      self.speak( word , function () { button.classList.remove( "is-speaking" ); } );
+      self.speak( word , { onFinish: function () { button.classList.remove( "is-speaking" ); } } );
     } );
 
     return button;
