@@ -180,3 +180,23 @@ func TestNewOnlyPracticeModeIsKept( t *testing.T ) {
 		t.Errorf( "practice mode = %q, wanted it kept" , settings.PracticeMode )
 	}
 }
+
+// The reading-level pill is stored as "hide" rather than "show" so that the
+// zero value is what every existing record was saved under. A "show" field
+// would decode to false on an old record and empty everyone's badges.
+func TestLevelBadgeShowsUnlessHidingIsAskedFor( t *testing.T ) {
+	if DefaultSettings().HideLevelBadge {
+		t.Error( "the default hides the reading level" )
+	}
+
+	stored := &Settings{ Schema: settingsSchema } // as an older record decodes
+	stored.normalise()
+	if stored.HideLevelBadge {
+		t.Error( "a record written before the field existed came back hiding the badge" )
+	}
+
+	asked := DefaultSettings()
+	asked.HideLevelBadge = true
+	asked.normalise()
+	if asked.HideLevelBadge == false { t.Error( "the choice was normalised away" ) }
+}

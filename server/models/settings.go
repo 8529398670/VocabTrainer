@@ -69,14 +69,20 @@ const (
 	ScoringBinary = "binary"
 
 	// ScoringGraded is Anki's four: Again, Hard, Good and Easy, each showing
-	// how long it would put the card away for. The swipes carry the two
-	// extremes -- the direction bound to "don't know" answers Again, the
-	// shortest delay, and the direction bound to "I know it" answers Easy,
-	// the longest -- so the gesture still means what it meant. Hard and Good
-	// sit between them and are reachable from the buttons and the number
-	// keys, because there is nowhere sensible to put them: four grades and a
-	// skip would need five directions, and a swipe you have to aim is not
-	// worth having.
+	// how long it would put the card away for.
+	//
+	// This mode fixes the two horizontal swipes rather than reading them from
+	// the swipe_* fields below: left is Again and right is Easy, always. The
+	// four grades are a scale drawn left to right, soonest to latest, and a
+	// row whose arrows point against its own order is worse than one with no
+	// arrows at all -- so the gestures follow the row instead of the row
+	// following the gestures. Only the skip direction is still the user's,
+	// and only on the axis the grades have not claimed.
+	//
+	// Hard and Good sit between the two ends and are reachable from the
+	// buttons and the number keys. There is nowhere sensible to put them:
+	// four grades and a skip would need five directions, and a swipe you have
+	// to aim is not worth having.
 	ScoringGraded = "graded"
 )
 
@@ -173,6 +179,13 @@ type Settings struct {
 	BatchSize    int  `json:"batch_size"`
 	ShowExamples bool `json:"show_examples"`
 	Haptics      bool `json:"haptics"`
+
+	// HideLevelBadge takes the reading-level pill ("Grade 8") off the cards.
+	// Stored as "hide" rather than "show" so that the zero value is the
+	// behaviour every existing record was saved under -- a "show" field
+	// missing from an old record would decode to false and empty everyone's
+	// badges on upgrade.
+	HideLevelBadge bool `json:"hide_level_badge"`
 
 	// Theme is "light" or "dark". Light is the default, and dark is a
 	// deliberate choice rather than a reading of the system setting.

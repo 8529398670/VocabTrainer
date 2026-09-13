@@ -169,6 +169,7 @@ const Settings = {
     Dom.get( "known-skips-reveal" ).checked = !!current.known_skips_reveal;
     Dom.get( "speech-voice" ).value = current.speech_voice || "";
     Dom.get( "show-examples" ).checked = !!current.show_examples;
+    Dom.get( "hide-level-badge" ).checked = !!current.hide_level_badge;
     Dom.get( "haptics" ).checked = !!current.haptics;
     Dom.get( "theme-dark" ).checked = current.theme === "dark";
 
@@ -334,6 +335,7 @@ const Settings = {
       daily_new_limit: Number( Dom.get( "daily-new" ).value ),
       batch_size:      Number( Dom.get( "batch-size" ).value ),
       show_examples:   Dom.get( "show-examples" ).checked,
+      hide_level_badge: Dom.get( "hide-level-badge" ).checked,
       haptics:         Dom.get( "haptics" ).checked,
       theme:           Dom.get( "theme-dark" ).checked ? "dark" : "light",
     };

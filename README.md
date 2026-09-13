@@ -119,12 +119,19 @@ Easy** — each button printed with how long it would put the word away for, so
 a grade is never given blind. A new word offers 10m / 1d / 4d / 8d; a word
 seen twice offers rather more.
 
-The swipes keep their directions and take the two extremes: the direction
-bound to "don't know" answers **Again**, the soonest, and the one bound to "I
-know it" answers **Easy**, the latest. Skip is where it always was. Hard and
-Good sit between them, on the buttons and on keys 1 to 4 — there is nowhere
-sensible to put them otherwise, and they are the two answers worth a
-deliberate press rather than a flick.
+The swipes take the two extremes, and this is the one mode that fixes them
+rather than reading them from your swipe settings: **left is Again** and
+**right is Easy**, always. The grades are a scale drawn left to right, soonest
+to latest, and a row whose arrows point against its own order is worse than a
+row with no arrows at all — so the gestures follow the row. Skip keeps
+whichever vertical direction you gave it. Your own mapping is untouched and
+comes straight back when you switch to two answers.
+
+Hard and Good sit between the extremes, on the buttons and on keys 1 to 4 —
+there is nowhere sensible to put them otherwise, and they are the two answers
+worth a deliberate press rather than a flick. Skip has no button in this mode:
+it is not a grade, a fifth button would take a fifth of a phone's width from
+four that need it, and the swipe still works with its usual hint on the card.
 
 Off by default. One bit is what a thumb gives without stopping to think, and
 a vocabulary run cannot afford much stopping; four is there for people who
@@ -189,6 +196,11 @@ Every swipe files the word somewhere, and every list can move it elsewhere:
 
 That is also the recovery path for a mis-swipe, which on a gesture-driven
 screen is not a rare event.
+
+The reading-level pill on each card can be turned off in Settings — it is the
+same on nearly every card in a run, being what the run was drawn from, so it
+is the first thing to go for anyone who finds the top of the card busy. On by
+default.
 
 All three come out as a spreadsheet from Settings — one `.xlsx` file, one
 sheet per list, with the definition, the level, and how the word has gone so

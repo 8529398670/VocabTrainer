@@ -19,6 +19,7 @@
   --border: #dfe3e8;
   --accent: #1f5fd6;
   --accent-fg: #ffffff;
+  --accent-bg: #e6eefb;
   --ok-bg: #e7f6ec;
   --ok-fg: #14562c;
   --warn-bg: #fdf3e2;
@@ -40,6 +41,7 @@
   --border: #2c3138;
   --accent: #6ea0ff;
   --accent-fg: #0b0d10;
+  --accent-bg: #16233a;
   --ok-bg: #12301d;
   --ok-fg: #94d9ab;
   --warn-bg: #33270f;
@@ -859,13 +861,17 @@ button.action-skip    { background: var(--warn-bg);  color: var(--warn-fg);  bor
 button.action-known   { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid transparent; }
 
 /* The grades read left to right as a scale, so the colours do too: red for
-   the miss, amber for the struggle, green for the two that keep the word --
-   with Easy carrying the accent border so the two greens are still one
-   glance apart. */
-button.grade-again { background: var(--error-bg); color: var(--error-fg); border: 1px solid transparent; }
-button.grade-hard  { background: var(--warn-bg);  color: var(--warn-fg);  border: 1px solid transparent; }
-button.grade-good  { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid transparent; }
-button.grade-easy  { background: var(--ok-bg);    color: var(--ok-fg);    border: 1px solid var(--ok-fg); }
+   the miss, amber for the struggle, green for the one that keeps the word,
+   blue for the one that puts it away longest.
+
+   Easy is blue rather than a second green with a border round it. A border is
+   how this stylesheet marks a thing that is *selected*, so a permanent one
+   read as "you picked Easy" and stayed saying it on every card afterwards.
+   Four flat fills in four colours cannot be misread that way. */
+button.grade-again { background: var(--error-bg);  color: var(--error-fg);  border: 1px solid transparent; }
+button.grade-hard  { background: var(--warn-bg);   color: var(--warn-fg);   border: 1px solid transparent; }
+button.grade-good  { background: var(--ok-bg);     color: var(--ok-fg);     border: 1px solid transparent; }
+button.grade-easy  { background: var(--accent-bg); color: var(--accent);    border: 1px solid transparent; }
 
 /* The delay each grade buys. Quieter than the label above it: it is a number
    you check rather than one you read, and at full weight four of them turn
@@ -878,30 +884,6 @@ button.grade-easy  { background: var(--ok-bg);    color: var(--ok-fg);    border
   font-variant-numeric: tabular-nums;
 }
 
-/* Skip, on its own line under the grades. A quiet pill rather than a fourth
-   of the row: it is not a grade, and giving it equal weight would suggest it
-   belonged on the same scale. */
-.deck-aside {
-  display: flex;
-  justify-content: center;
-}
-
-.deck-aside button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  min-height: 2.1rem;
-  padding: 0.25rem 1.2rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  width: auto;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.deck-aside .action-icon { font-size: 0.95rem; line-height: 1; }
 
 .deck-help {
   text-align: center;
@@ -1207,7 +1189,6 @@ button.grade-easy  { background: var(--ok-bg);    color: var(--ok-fg);    border
   /* Beside the card there is no room for a second line under each label, so
      the delay sits after it on the same one. */
   .deck-grades button { min-height: 2.1rem; }
-  .deck-aside button { padding: 0.2rem 0.8rem; }
 
   /* Both help lines go: the arrows are on the buttons, and a line of prose is
      the first thing that should give when there are 390px to share. */

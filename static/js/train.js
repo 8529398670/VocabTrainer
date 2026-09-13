@@ -91,18 +91,30 @@ const Trainer = {
   applyDirections() {
     const settings = this.settings || {};
     const fallback = this.fallbackDirections;
-
-    // The directions do not move when the grades are on -- the same three
-    // gestures answer the same three things. What changes is how far the
-    // "I know it" one goes: it becomes Easy, the longest delay on offer,
-    // because the grade scale it now sits on has somewhere further to go than
-    // the plain yes did. Again is already the shortest, so it needs no
-    // translation.
-    const remembered = this.graded() ? "easy" : "known";
     this.outcomeFor = {};
+
+    if ( this.graded() ) {
+      // The two horizontal answers are fixed here rather than read from the
+      // settings, which is the one place the grades overrule a preference.
+      //
+      // The four grades are a scale, drawn left to right from soonest to
+      // latest, and the arrows on them have to agree with that: Again sits at
+      // the left end, so it is the leftward swipe, and Easy sits at the right
+      // end, so it is the rightward one. Honouring a mapping that pointed
+      // them the other way would put a rightward arrow on the leftmost button
+      // -- a row contradicting its own order, which is worse than a row with
+      // no arrows at all.
+      this.outcomeFor.left = "unknown";
+      this.outcomeFor.right = "easy";
+      // Skip is still the user's to place, but only on the axis the grades
+      // have not claimed. Anything horizontal falls back to up.
+      this.outcomeFor[ settings.swipe_skip === "down" ? "down" : "up" ] = "skip";
+      return;
+    }
+
     this.outcomeFor[ settings.swipe_unknown || fallback.unknown ] = "unknown";
     this.outcomeFor[ settings.swipe_skip    || fallback.skip    ] = "skip";
-    this.outcomeFor[ settings.swipe_known   || fallback.known   ] = remembered;
+    this.outcomeFor[ settings.swipe_known   || fallback.known   ] = "known";
   },
 
   directionOf( outcome ) {
@@ -378,7 +390,6 @@ const Trainer = {
     // trusts.
     Dom.show( Dom.get( "deck-actions" ) , !graded );
     Dom.show( Dom.get( "deck-grades" ) , graded );
-    Dom.show( Dom.get( "deck-aside" ) , graded );
 
     if ( graded ) this.renderGradeControls();
     else this.renderAnswerControls();
@@ -438,12 +449,19 @@ const Trainer = {
     this.gradeButtons.forEach( function ( entry ) {
       arrow( Dom.get( entry.id ) , entry.outcome );
     } );
-    arrow( Dom.get( "grade-skip" ) , "skip" );
   },
 
+  // The line of prose under the buttons, and whether there is one.
+  //
+  // There is not, once the grades are on. Four buttons labelled with their
+  // own names and their own delays have already said everything the sentence
+  // would, and on a phone it was two lines of a screen that had none to
+  // spare. The keyboard line stays, reworded: the number keys are the only
+  // way to reach Hard and Good without a pointer, so they are worth saying
+  // out loud.
   renderGestureHelp() {
+    const graded = this.graded();
     const help = Dom.get( "gesture-help" );
-    if ( !help ) return;
     const self = this;
     // An outcome with no direction on it names nothing, which leaves the
     // placeholder showing rather than the word "undefined" -- see I18n.format.
@@ -451,15 +469,20 @@ const Trainer = {
       const direction = self.directionOf( outcome );
       return direction ? I18n.get( "train.direction_" + direction ) : "";
     };
-    const text = this.graded()
-      ? I18n.format( "train.gesture_help_graded" , {
-          again: named( "unknown" ) , easy: named( "easy" ) , skip: named( "skip" ),
-        } )
-      : I18n.format( "train.gesture_help" , {
-          known: named( "known" ) , unknown: named( "unknown" ) , skip: named( "skip" ),
-        } );
-    Dom.text( help , text );
-    Dom.show( help , text !== "" );
+
+    if ( help ) {
+      const text = graded ? "" : I18n.format( "train.gesture_help" , {
+        known: named( "known" ) , unknown: named( "unknown" ) , skip: named( "skip" ),
+      } );
+      Dom.text( help , text );
+      Dom.show( help , text !== "" );
+    }
+
+    const keys = Dom.get( "keyboard-help" );
+    if ( !keys ) return;
+    const text = I18n.get( graded ? "train.keyboard_help_graded" : "train.keyboard_help" );
+    Dom.text( keys , text );
+    Dom.show( keys , text !== "" );
   },
 
   // The delay each grade would buy, printed under its label. This is the one
@@ -592,7 +615,13 @@ const Trainer = {
       class: "badge " + ( card.is_new ? "badge-new" : "badge-review" ),
       text: I18n.get( card.is_new ? "train.new_badge" : "train.review_badge" ),
     } ) );
-    badges.appendChild( Dom.el( "span" , { class: "badge" , text: Shell.levelName( card.tier ) } ) );
+    // The reading level is the same on nearly every card in a run -- it is
+    // what the run was drawn from -- so it is the first thing to go for
+    // anyone who finds the top of the card busy. On by default: it is the
+    // only place the level is visible while training.
+    if ( !this.settings.hide_level_badge ) {
+      badges.appendChild( Dom.el( "span" , { class: "badge" , text: Shell.levelName( card.tier ) } ) );
+    }
     return badges;
   },
 
@@ -920,7 +949,6 @@ const Trainer = {
     wire( "action-known" , "known" );
 
     this.gradeButtons.forEach( function ( entry ) { wire( entry.id , entry.outcome ); } );
-    wire( "grade-skip" , "skip" );
 
     const reveal = Dom.get( "action-reveal" );
     if ( reveal ) reveal.addEventListener( "click" , function () { self.handleTap(); } );

@@ -92,11 +92,10 @@ train:
   # {known}, {unknown} and {skip} are filled in with the directions chosen in
   # Settings, so this line stays true whichever way round they are.
   gesture_help: "Swipe {known} if you know it, {unknown} if you don't, {skip} to skip. Or use the buttons."
-  # The same line for the four-grade mode, where a swipe reaches the two
-  # extremes and the middle two grades are on the buttons. {again}, {easy}
-  # and {skip} are the directions chosen in Settings.
-  gesture_help_graded: "Swipe {again} for Again, {easy} for Easy, {skip} to skip. Hard and Good are on the buttons, or keys 1 to 4."
   keyboard_help: "Keyboard: the arrow keys match the swipes · space reveals."
+  # The same line for the four-grade mode, where the number keys reach the two
+  # grades no swipe can.
+  keyboard_help_graded: "Keyboard: 1 to 4 across the grades · left and right match them · up skips · space reveals."
   practice_badge: "Not known only"
   empty_practice_heading: "Nothing left to practise"
   empty_practice_body: "Your not-known list is empty. Switch back to the normal deck in Settings to meet new words."
@@ -177,7 +176,7 @@ settings:
   swipe_unused: "Swiping {direction} does nothing."
   # Shown in place of the line above when four grades are on, because the two
   # directions then mean something narrower than their labels say.
-  swipe_graded_note: "With four grades a swipe answers the two extremes: the \"don't know\" direction is Again, the soonest, and the \"I know it\" direction is Easy, the latest. Hard and Good sit between them on the buttons, or on keys 1 to 4."
+  swipe_graded_note: "With four grades these two are set for you: swiping left answers Again and swiping right answers Easy, so the gestures match the order the grades are drawn in. Only the skip direction below still applies, and only if it is up or down. The choices here are kept for when you switch back to two answers."
   speech_heading: "Pronunciation"
   speech_help: "The speaker on each card reads the word aloud using a voice already on this device. Which voices are on offer is up to the device, so a voice chosen here may not exist on another one -- that one falls back to its own default."
   speech_voice_label: "Voice"
@@ -219,6 +218,7 @@ settings:
   batch_label: "Cards per run"
   display_heading: "Display"
   examples_label: "Show example sentences"
+  level_badge_label: "Hide the reading level on cards"
   haptics_label: "Vibrate on swipe"
   theme_label: "Dark mode"
   save_button: "Save settings"

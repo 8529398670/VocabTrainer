@@ -97,20 +97,18 @@
             </button>
           </div>
 
-          <!-- Skip has no place in a row of grades -- it is not one, and a
-               fifth button would take a fifth of a phone's width from four
-               that need it. It gets its own line instead. -->
-          <div class="deck-aside" id="deck-aside" hidden>
-            <button type="button" id="grade-skip" class="action-skip">
-              <span class="action-icon" aria-hidden="true"></span>
-              <span data-i18n="train.skip_button"></span>
-            </button>
-          </div>
+          <!-- Skip has no button in this mode on purpose. It is not a grade,
+               a fifth button would take a fifth of a phone's width from four
+               that need it, and a row of its own cost a line of a screen that
+               had none spare. The gesture still works, and the card still
+               shows its hint as you drag. -->
 
           <p class="deck-help" id="gesture-help"></p>
           <!-- Hidden on a touch device by the stylesheet: two lines about the
-               arrow keys is a poor trade for two lines of a phone screen. -->
-          <p class="deck-help deck-help-keyboard" data-i18n="train.keyboard_help"></p>
+               arrow keys is a poor trade for two lines of a phone screen. The
+               wording is swapped by train.js when the grades are on, so the
+               key is set there rather than here. -->
+          <p class="deck-help deck-help-keyboard" id="keyboard-help"></p>
         </div>
 
         <!-- Both ways on from an empty deck: keep going here, or go and
