@@ -1,9 +1,11 @@
 # Data sources and licences
 
 The word list this app ships with is generated from four public datasets by
-`cmd/builddata`. None of them are redistributed here in their original form;
-what is committed is the derived list in `server/corpus/data/words.jsonl.gz`
-(words, reading levels, and WordNet definitions).
+`cmd/builddata`. What is committed is the derived list in
+`server/corpus/data/words.jsonl.gz` (words, reading levels, and WordNet
+definitions), plus the age-of-acquisition ratings below as a plain TSV in
+`server/corpus/data/aoa.tsv`, credited to their authors. The other three
+sources are not redistributed here.
 
 Run `./scripts/fetch-corpus-sources.sh` to download the originals, then
 `go run ./cmd/builddata` to regenerate.

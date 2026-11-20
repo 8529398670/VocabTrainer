@@ -3,7 +3,8 @@
 //
 // It is a build-time tool, not part of the server. Run it after
 // scripts/fetch-corpus-sources.sh and commit the result; nobody needs the
-// 40MB of raw sources to build or run the app.
+// raw sources to build or run the app. The age-of-acquisition ratings are
+// the exception: they are committed at server/corpus/data/aoa.tsv.
 //
 // The interesting part is estimateTier: how three independent signals get
 // turned into one reading-grade band. See the comment there before changing
@@ -501,6 +502,7 @@ func glossIsUnsuitable( text string ) ( result bool ) {
 
 func main() {
 	sources := flag.String( "sources" , "./corpus-sources" , "directory holding the raw downloads" )
+	aoaFile := flag.String( "aoa" , "./server/corpus/data/aoa.tsv" , "age-of-acquisition ratings (committed; see ATTRIBUTION.md)" )
 	output := flag.String( "out" , "./server/corpus/data/words.jsonl.gz" , "where to write the generated corpus" )
 	maxSenses := flag.Int( "max-senses" , 3 , "how many WordNet senses to keep per word" )
 	flag.Parse()
@@ -516,7 +518,13 @@ func main() {
 	log.Printf( "  web       %d types / %.0f tokens" , len( webCounts ) , webTotal )
 
 	log.Println( "reading age-of-acquisition ratings" )
-	aoaByWord , err := readAoA( filepath.Join( *sources , "aoa.tsv" ) )
+	// The committed copy beside the generated corpus comes first; one in the
+	// sources directory is the fallback, for a checkout that has lost it.
+	aoaPath := *aoaFile
+	if _ , statErr := os.Stat( aoaPath ); statErr != nil {
+		aoaPath = filepath.Join( *sources , "aoa.tsv" )
+	}
+	aoaByWord , err := readAoA( aoaPath )
 	if err != nil { log.Fatalf( "aoa: %v" , err ) }
 	log.Printf( "  %d rated words" , len( aoaByWord ) )
 

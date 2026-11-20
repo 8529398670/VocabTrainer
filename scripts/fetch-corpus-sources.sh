@@ -42,8 +42,9 @@ fetch "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/conten
 fetch "https://norvig.com/ngrams/count_1w.txt" "${out}/freq_web.txt"
 
 # Age-of-acquisition ratings (Kuperman, Stadthagen-Gonzalez & Brysbaert 2012).
-# Distributed as .xlsx, so it is converted to a plain TSV here; the TSV is
-# committed because parsing xlsx in Go to read three columns is not worth it.
+# Distributed as .xlsx, so it is converted to a plain TSV. The TSV is
+# committed at server/corpus/data/aoa.tsv, so this download only runs if
+# that copy is missing.
 if [ ! -s "${here}/corpus-sources/aoa.tsv" ] && [ ! -s "${here}/server/corpus/data/aoa.tsv" ]; then
   fetch "https://osf.io/download/vb9je/" "${out}/aoa_kuperman.xlsx"
   echo "  convert aoa_kuperman.xlsx -> aoa.tsv"
