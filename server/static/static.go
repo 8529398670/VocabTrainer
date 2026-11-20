@@ -56,6 +56,8 @@ var signedOutPaths = map[string]bool{
 func init() {
 	mime.AddExtensionType( ".woff2" , "font/woff2" )
 	mime.AddExtensionType( ".woff" , "font/woff" )
+	// The home-screen manifest (site.webmanifest), likewise missing.
+	mime.AddExtensionType( ".webmanifest" , "application/manifest+json" )
 }
 
 type Server struct {

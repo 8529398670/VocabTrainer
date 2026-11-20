@@ -2,6 +2,8 @@ package static
 
 import (
 	io "io"
+	os "os"
+	strings "strings"
 	http "net/http"
 	testing "testing"
 	fstest "testing/fstest"
@@ -101,4 +103,27 @@ func TestScreenPathsGetThePage( t *testing.T ) {
 	files[ "index.html" ] = &fstest.MapFile{ Data: []byte( `<section class="view" data-view="logs" data-path="/admin/logs">` ) }
 	if got := status( "/admin/logs" ); got != http.StatusOK { t.Errorf( "/admin/logs after edit: %d" , got ) }
 	if got := status( "/admin/users" ); got != http.StatusNotFound { t.Errorf( "/admin/users after edit: %d" , got ) }
+}
+
+// The app icons every page links to are served from the real static/
+// directory, each with the type a browser needs to use it.
+func TestAppIconsAreServed( t *testing.T ) {
+	server , _ := New( os.DirFS( "../../static" ) )
+	app := fiber.New()
+	app.Get( "/*" , server.Handler )
+	for path , want := range map[string]string{
+		"/favicon.ico":          "image/",
+		"/favicon.svg":          "image/svg+xml",
+		"/apple-touch-icon.png": "image/png",
+		"/icon-192.png":         "image/png",
+		"/icon-512.png":         "image/png",
+		"/site.webmanifest":     "application/manifest+json",
+	} {
+		response , err := app.Test( httptestRequest( path ) )
+		if err != nil { t.Fatal( err ) }
+		got := response.Header.Get( "Content-Type" )
+		if response.StatusCode != http.StatusOK || strings.HasPrefix( got , want ) == false {
+			t.Errorf( "%s: %d %q, want %q" , path , response.StatusCode , got , want )
+		}
+	}
 }
