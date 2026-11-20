@@ -77,6 +77,64 @@ func ( handlers *Handlers ) mountDeclared( app *fiber.App ) {
 		Role: apidoc.Admin,
 		Errors: []int{ 400 , 401 , 403 , 404 },
 	} , handlers.revokeInvite , handlers.Guard.RequireAdmin )
+	apidoc.Mount( app , "GET" , "/api/admin/keys" , apidoc.Op{
+		Summary: "Every key in the app",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.listAllAPIKeys , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/admin/keys" , apidoc.Op{
+		Summary: "Create a key that acts as someone else",
+		Description: "Any admin may do this for an ordinary user, and only the owner for another admin. Nobody may do it for the owner. The key records who made it and shows that to the person it acts as.",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Status: 201,
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.createAPIKeyForUser , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/admin/keys/{key_id}/delete" , apidoc.Op{
+		Summary: "Delete anyone's key",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.deleteAnyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/admin/keys/{key_id}/expiry" , apidoc.Op{
+		Summary: "Change when anyone's key expires",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.setAnyAPIKeyExpiry , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/admin/keys/{key_id}/rename" , apidoc.Op{
+		Summary: "Rename anyone's key",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 , 409 },
+	} , handlers.renameAnyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/admin/keys/{key_id}/restore" , apidoc.Op{
+		Summary: "Undo deleting anyone's key",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 , 409 },
+	} , handlers.restoreAnyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/admin/keys/{key_id}/revoke" , apidoc.Op{
+		Summary: "Revoke anyone's key",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Role: apidoc.Admin,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.revokeAnyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireAdmin , handlers.Guard.RequireSession )
 	apidoc.Mount( app , "GET" , "/api/admin/users" , apidoc.Op{
 		Summary: "List users",
 		Description: "Accounts, a page at a time, including disabled ones, with each one's role and which is the owner. next is the offset of the following page, or null on the last one.",
@@ -282,6 +340,64 @@ func ( handlers *Handlers ) mountDeclared( app *fiber.App ) {
 		Access: apidoc.Public,
 		Errors: []int{ 400 , 403 },
 	} , handlers.inviteInfo , sameOrigin( joinElsewhere ) )
+	apidoc.Mount( app , "GET" , "/api/keys" , apidoc.Op{
+		Summary: "Your API keys",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.listMyAPIKeys , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys" , apidoc.Op{
+		Summary: "Create an API key",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Status: 201,
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.createMyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys/{key_id}/delete" , apidoc.Op{
+		Summary: "Delete one of your keys",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.deleteMyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys/{key_id}/expiry" , apidoc.Op{
+		Summary: "Change when one of your keys expires",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.setMyAPIKeyExpiry , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys/{key_id}/rename" , apidoc.Op{
+		Summary: "Rename one of your keys",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 , 409 },
+	} , handlers.renameMyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys/{key_id}/restore" , apidoc.Op{
+		Summary: "Undo deleting one of your keys",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 , 409 },
+	} , handlers.restoreMyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys/{key_id}/revoke" , apidoc.Op{
+		Summary: "Revoke one of your keys",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.revokeMyAPIKey , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
+	apidoc.Mount( app , "POST" , "/api/keys/{key_id}/sign-in" , apidoc.Op{
+		Summary: "Let one of your keys make sign-in links",
+		Description: "Off by default. When on, the key may ask POST /api/account/login-link for a link that signs your account in on a browser, which then can do everything you can, including what keys may not. The link works once, for at most 15 minutes.",
+		Tag: "API keys",
+		Access: apidoc.SessionOnly,
+		Feature: "api_keys",
+		Errors: []int{ 400 , 401 , 403 , 404 },
+	} , handlers.setMyAPIKeySignIn , handlers.featureGuards()[ "api_keys" ] , handlers.Guard.RequireLogin , handlers.Guard.RequireSession )
 	apidoc.MountStream( app , "GET" , "/api/language" , apidoc.Op{
 		Summary: "The UI's text",
 		Tag: "Account",

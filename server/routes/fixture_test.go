@@ -46,6 +46,7 @@ func newAuthFixture( t *testing.T ) ( fixture *authFixture ) {
 		DatabasePath:     filepath.Join( t.TempDir() , "test.db" ),
 		SecretKey:        strings.Repeat( "ab" , 32 ),
 		CookieName:       "session",
+		APIKeysEnabled:   true,
 		SessionTTL:       time.Hour,
 	}
 	store , err := db.Open( cfg )
@@ -117,6 +118,30 @@ func ( client *browser ) signedIn( t *testing.T ) ( result bool ) {
 	return
 }
 
+// withKey calls a route the way a script does: an API key in the
+// Authorization header, no cookie and no csrf token.
+func ( fixture *authFixture ) withKey( t *testing.T , key string , method string , path string , body fiber.Map ) ( status int , reply map[ string ]any ) {
+	t.Helper()
+	raw , _ := json.Marshal( body )
+	request , _ := http.NewRequest( method , path , strings.NewReader( string( raw ) ) )
+	request.Header.Set( "Content-Type" , "application/json" )
+	request.Header.Set( "Authorization" , "Bearer " + key )
+	response , err := fixture.app.Test( request , fiber.TestConfig{ Timeout: 10 * time.Second } )
+	if err != nil { t.Fatal( err ) }
+	text , _ := io.ReadAll( response.Body )
+	status = response.StatusCode
+	json.Unmarshal( text , &reply )
+	return
+}
+
+// loginWith signs a new browser in through a login path a route handed back,
+// reporting whether it worked.
+func ( fixture *authFixture ) loginWith( t *testing.T , login_path string ) ( worked bool ) {
+	t.Helper()
+	status , _ := fixture.browser().post( t , "/api/login" , fiber.Map{ "credential": strings.TrimPrefix( login_path , "/login/" ) } )
+	worked = status == fiber.StatusOK
+	return
+}
 
 func ( fixture *authFixture ) link( t *testing.T , user_id uint64 ) ( credential string ) {
 	t.Helper()

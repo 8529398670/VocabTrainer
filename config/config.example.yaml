@@ -209,6 +209,18 @@ auth:
   # an invite link is posted somewhere and waits for people to notice it.
   # [live]
   invite_ttl_seconds: 604800        # 7 days
+  # API keys let a script, a cron job, or another service call the API at the
+  # role of the account that owns them, never higher. false closes the surface
+  # completely: the Authorization header stops being believed, existing keys
+  # stop working (the rows survive), and the endpoints that mint keys 404.
+  # [live]
+  api_keys: true
+
+  # Lifetime of a new key when the request does not say. A key that never
+  # expires has to be asked for (expires_in_days: 0, or `-days 0`). [live]
+  api_key_ttl_seconds: 7776000     # 90 days
+
+
 
 
 # The activity log: every request, every sign-in and admin action, and what

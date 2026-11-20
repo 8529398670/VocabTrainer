@@ -230,6 +230,10 @@ func ( server *Server ) routes() ( handler http.Handler ) {
 	mux.HandleFunc( "POST /v1/users/{id}/revoke-access" , server.handleRevokeAccess )
 	mux.HandleFunc( "POST /v1/users/{id}/delete" , server.handleDeleteUser )
 	mux.HandleFunc( "POST /v1/owner" , server.handleTransferOwner )
+	mux.HandleFunc( "GET /v1/api-keys" , server.handleListAPIKeys )
+	mux.HandleFunc( "POST /v1/api-keys" , server.handleCreateAPIKey )
+	mux.HandleFunc( "POST /v1/api-keys/{id}/revoke" , server.handleRevokeAPIKey )
+	mux.HandleFunc( "POST /v1/api-keys/{id}/delete" , server.handleDeleteAPIKey )
 	mux.HandleFunc( "POST /v1/backup" , server.handleBackup )
 	handler = mux
 	return
@@ -434,17 +438,207 @@ type SetDisabledRequest struct {
 	Disabled bool `json:"disabled"`
 }
 
+// APIKeyResponse is a stored API key as a caller sees it. Credential is set
+// only by the endpoint that mints one, and is the one moment it is ever
+// visible; the stored hash is never exposed at all.
+type APIKeyResponse struct {
+	ID          string     `json:"id"`
+	UserID      uint64     `json:"user_id"`
+	DisplayName string     `json:"display_name"`
+	Name        string     `json:"name"`
+	Role        string     `json:"role"`
+	Live        bool       `json:"live"`
+	Revoked     bool       `json:"revoked"`
+	Expired     bool       `json:"expired"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
+	Credential  string     `json:"credential,omitempty"`
+}
+
+// CreateAPIKeyRequest is the body of POST /v1/api-keys. ExpiresInDays is a
+// pointer for the same reason it is in the HTTP API: absent means "the
+// server's default", 0 means "never expires", and those must stay
+// distinguishable.
+type CreateAPIKeyRequest struct {
+	UserID        uint64 `json:"user_id"`
+	Name          string `json:"name"`
+	Role          string `json:"role"`
+	ExpiresInDays *int   `json:"expires_in_days"`
+}
+
+func apiKeyResponse( key *models.APIKey , display_name string , credential string ) ( result APIKeyResponse ) {
+	result = APIKeyResponse{
+		ID:          key.ID,
+		UserID:      key.UserID,
+		DisplayName: display_name,
+		Name:        key.Name,
+		Role:        key.Role,
+		Live:        key.Live(),
+		Revoked:     key.Revoked(),
+		Expired:     key.Expired(),
+		CreatedAt:   key.CreatedAt,
+		ExpiresAt:   key.ExpiresAt,
+		LastUsedAt:  key.LastUsedAt,
+		RevokedAt:   key.RevokedAt,
+		Credential:  credential,
+	}
+	return
+}
+
+// displayNames builds the id -> name lookup the key listings need, in one
+// pass, rather than reading a user record per key.
+func ( server *Server ) displayNames() ( names map[ uint64 ]string , err error ) {
+	names = map[ uint64 ]string{}
+	users , err := models.ListUsers( server.store )
+	if err != nil { return }
+	for _ , user := range users {
+		names[ user.ID ] = user.DisplayName
+	}
+	return
+}
+
+// handleListAPIKeys lists every key, or one user's with ?user_id=N.
+func ( server *Server ) handleListAPIKeys( w http.ResponseWriter , r *http.Request ) {
+	var user_id uint64
+	if raw := r.URL.Query().Get( "user_id" ); raw != "" {
+		parsed , parse_err := strconv.ParseUint( raw , 10 , 64 )
+		if parse_err != nil {
+			writeError( w , http.StatusBadRequest , "user_id must be a positive integer" )
+			return
+		}
+		user_id = parsed
+	}
+
+	var keys []*models.APIKey
+	var err error
+	if user_id == 0 {
+		keys , err = models.ListAPIKeys( server.store )
+	} else {
+		keys , err = models.ListAPIKeysForUser( server.store , user_id )
+	}
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+
+	names , err := server.displayNames()
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+
+	out := []APIKeyResponse{}
+	for _ , key := range keys {
+		out = append( out , apiKeyResponse( key , names[ key.UserID ] , "" ) )
+	}
+	writeJSON( w , http.StatusOK , out )
+}
+
+// handleCreateAPIKey mints a key on someone's behalf -- the CLI's way to hand
+// a CI system or a cron job a credential without anyone signing in.
+//
+// It goes through models.IssueAPIKey like every other path, so the ceiling
+// that a key cannot outrank its owner is enforced here too: this endpoint
+// cannot mint an admin key for a non-admin account.
+func ( server *Server ) handleCreateAPIKey( w http.ResponseWriter , r *http.Request ) {
+	if server.cfg().APIKeysEnabled == false {
+		writeError( w , http.StatusForbidden , "api keys are disabled on this server (auth.api_keys: false)" )
+		return
+	}
+
+	body := CreateAPIKeyRequest{}
+	if decodeBody( w , r , &body ) == false { return }
+
+	if models.ValidAPIKeyName( body.Name ) == false {
+		writeError( w , http.StatusBadRequest , "name must be 1-80 characters" )
+		return
+	}
+	role := body.Role
+	if role == "" {
+		role = models.RoleUser
+	}
+	if models.ValidRole( role ) == false {
+		writeError( w , http.StatusBadRequest , "role must be admin or user" )
+		return
+	}
+	ttl , ok := models.APIKeyTTLFromDays( body.ExpiresInDays , server.cfg().APIKeyTTL )
+	if ok == false {
+		writeError( w , http.StatusBadRequest , "expires_in_days must be 0 (never) or up to 3650" )
+		return
+	}
+
+	user , err := models.GetUser( server.store , body.UserID )
+	if err != nil {
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no user with id %d" , body.UserID ) )
+		return
+	}
+
+	credential , key , err := models.IssueAPIKey( server.store , user.ID , body.Name , role , ttl )
+	if err != nil {
+		writeError( w , http.StatusBadRequest , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusOK , apiKeyResponse( key , user.DisplayName , credential ) )
+}
 
 
 
 
 
+func ( server *Server ) handleRevokeAPIKey( w http.ResponseWriter , r *http.Request ) {
+	key_id := r.PathValue( "id" )
+	key , err := models.GetAPIKey( server.store , key_id )
+	if err != nil {
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no api key with id %s" , key_id ) )
+		return
+	}
+	if err = models.RevokeAPIKey( server.store , key.ID ); err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
 
+	// Re-read rather than patching the copy in hand, so the response reflects
+	// what is actually stored.
+	key , err = models.GetAPIKey( server.store , key.ID )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	names , err := server.displayNames()
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusOK , apiKeyResponse( key , names[ key.UserID ] , "" ) )
+}
 
-
-
-
-
+// handleDeleteAPIKey answers with the key as it was just before deletion, so
+// the CLI can say what it removed.
+func ( server *Server ) handleDeleteAPIKey( w http.ResponseWriter , r *http.Request ) {
+	key_id := r.PathValue( "id" )
+	key , err := models.GetAPIKey( server.store , key_id )
+	if err != nil {
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no api key with id %s" , key_id ) )
+		return
+	}
+	names , err := server.displayNames()
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	// The CLI has no undo, so its delete is the hard one (see PurgeAPIKey).
+	if err = models.PurgeAPIKey( server.store , key.ID ); err != nil {
+		if errors.Is( err , db.ErrNotFound ) {
+			writeError( w , http.StatusNotFound , fmt.Sprintf( "no api key with id %s" , key_id ) )
+			return
+		}
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusOK , apiKeyResponse( key , names[ key.UserID ] , "" ) )
+}
 
 func ( server *Server ) handleHealth( w http.ResponseWriter , r *http.Request ) {
 	writeJSON( w , http.StatusOK , HealthResponse{

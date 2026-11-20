@@ -25,6 +25,7 @@ import (
 	language "vocabtrainer/server/language"
 	logs "vocabtrainer/server/logs"
 	middleware "vocabtrainer/server/middleware"
+	models "vocabtrainer/server/models"
 	security "vocabtrainer/server/security"
 	static "vocabtrainer/server/static"
 	stream "vocabtrainer/server/stream"
@@ -166,6 +167,7 @@ func ( handlers *Handlers ) Register( app *fiber.App ) {
 // this map's keys.
 func ( handlers *Handlers ) featureGuards() ( guards map[string]fiber.Handler ) {
 	guards = map[string]fiber.Handler{
+		"api_keys":     handlers.RequireAPIKeys,
 		"logs":         handlers.RequireLogs,
 	}
 	return
@@ -189,6 +191,28 @@ func forbidden( c fiber.Ctx , message string ) ( err error ) {
 	return
 }
 
+// restoreRefusal answers each way a restore can be refused.
+func restoreRefusal( cause error ) ( refused *refusal ) {
+	switch {
+	case errors.Is( cause , models.ErrRestoreGone ):
+		refused = refuse( fiber.StatusNotFound , cause.Error() )
+	case errors.Is( cause , models.ErrRestoreForbidden ):
+		refused = refuse( fiber.StatusForbidden , cause.Error() )
+	case errors.Is( cause , models.ErrRestoreOutranked ):
+		refused = refuse( fiber.StatusForbidden , cause.Error() )
+	case errors.Is( cause , models.ErrRestoreExpired ):
+		refused = refuse( fiber.StatusConflict , cause.Error() )
+	case errors.Is( cause , models.ErrAPIKeyLimit ):
+		refused = refuse( fiber.StatusConflict , "its owner already has the maximum number of live API keys" )
+	case errors.Is( cause , models.ErrOwnerProtected ):
+		refused = refuse( fiber.StatusForbidden , "nobody can restore the owner account's keys" )
+	case errors.Is( cause , models.ErrOwnerRequired ):
+		refused = refuse( fiber.StatusForbidden , "only the owner can restore an admin account's keys" )
+	default:
+		refused = internalFailure( cause )
+	}
+	return
+}
 
 // serverError ends a request that failed on our side. It writes nothing:
 // handing cause back up is what gets it to the log, and to the ErrorHandler

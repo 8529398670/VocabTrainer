@@ -46,6 +46,79 @@
         <button id="logout-button" class="secondary" data-i18n="account.logout_button"></button>
       </div>
 
+      <!-- A one-time login link for your own account, to sign in on another
+           device without asking an admin. Anyone signed in may make one. -->
+      <div class="card" id="device-panel">
+        <h2 data-i18n="account.device_heading"></h2>
+        <p class="muted" data-i18n="account.device_description"></p>
+        <div class="row-actions">
+          <button type="button" id="my-link-button" data-i18n="account.device_button"></button>
+          <button type="button" id="my-link-cancel-button" class="secondary" data-i18n="account.device_cancel_button" hidden></button>
+        </div>
+        <p id="my-link-cancelled" class="notice notice-ok" data-i18n="account.device_cancelled" hidden></p>
+        <div id="my-link-box" class="notice notice-link" hidden>
+          <p id="my-link-notice"></p>
+          <code id="my-link-value"></code>
+          <button type="button" id="my-link-copy-button" class="secondary" data-i18n="admin.copy_button"></button>
+          <span id="my-link-copied" class="muted" data-i18n="admin.copied_notice" hidden></span>
+        </div>
+      </div>
+
+      <!-- API keys, for scripts and other services. Built by keys.js, and
+           hidden while auth.api_keys is off. -->
+      <div class="card" id="keys-panel" hidden>
+        <h2 data-i18n="api_keys.heading"></h2>
+        <p class="muted" data-i18n="api_keys.description"></p>
+        <p class="muted"><span data-i18n="api_keys.spec_text"></span>
+          <a id="key-doc-link" href="/docs/api" data-i18n="api_keys.doc_link"></a></p>
+
+        <form id="create-key-form" autocomplete="off">
+          <div class="field">
+            <label for="key-name" data-i18n="api_keys.name_label"></label>
+            <input id="key-name" name="name" maxlength="80" required
+                   data-i18n-attr="placeholder:api_keys.name_placeholder" />
+          </div>
+          <div class="field" id="key-role-field" hidden>
+            <label for="key-role" data-i18n="api_keys.role_label"></label>
+            <select id="key-role" name="role">
+              <option value="user" data-i18n="api_keys.role_user"></option>
+              <option value="admin" data-i18n="api_keys.role_admin"></option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="key-days" data-i18n="api_keys.days_label"></label>
+            <input id="key-days" name="expires_in_days" type="number" min="0" max="3650" inputmode="numeric"
+                   data-i18n-attr="placeholder:api_keys.days_placeholder" />
+          </div>
+          <button type="submit" data-i18n="api_keys.create_button"></button>
+        </form>
+
+        <div id="key-secret-box" class="notice notice-link" hidden>
+          <p data-i18n="api_keys.secret_notice"></p>
+          <code id="key-secret-value"></code>
+          <button type="button" id="key-copy-button" class="secondary" data-i18n="api_keys.copy_button"></button>
+          <span id="key-copied" class="muted" data-i18n="admin.copied_notice" hidden></span>
+        </div>
+
+        <p id="keys-empty" class="muted" data-i18n="api_keys.empty" hidden></p>
+
+        <div class="table-scroll">
+          <table id="keys-table">
+            <thead>
+              <tr>
+                <th data-i18n="api_keys.table_name"></th>
+                <th data-i18n="api_keys.table_role"></th>
+                <th data-i18n="api_keys.table_status"></th>
+                <th data-i18n="api_keys.table_last_used"></th>
+                <th data-i18n="api_keys.table_expires"></th>
+                <th data-i18n="api_keys.table_actions"></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card" id="admin-panel" hidden>
         <h2 data-i18n="admin.heading"></h2>
         <p class="muted" data-i18n="admin.description"></p>
@@ -152,6 +225,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
+  <script src="/js/keys.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

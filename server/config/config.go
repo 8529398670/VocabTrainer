@@ -153,6 +153,8 @@ type AuthSection struct {
 	// InviteTTLSeconds is how long one of the app's own invite links
 	// (routes/invite.go) stays good.
 	InviteTTLSeconds     int  `yaml:"invite_ttl_seconds"`
+	APIKeys              bool `yaml:"api_keys"`
+	APIKeyTTLSeconds     int  `yaml:"api_key_ttl_seconds"`
 }
 
 type LogsSection struct {
@@ -296,7 +298,16 @@ type Config struct {
 	// than once (see models.ResolveLoginLink).
 	MultiUseLoginTokenTTL time.Duration
 
+	// APIKeysEnabled decides whether the Authorization: Bearer header is
+	// believed at all, and whether the endpoints that mint keys exist.
+	// Turning it off stops existing keys from authenticating too -- the rows
+	// stay, so switching it back on restores them.
+	APIKeysEnabled bool
 
+	// APIKeyTTL is how long a new key lasts when the request does not say.
+	// The default is bounded so that a forgotten key eventually stops being
+	// a live credential.
+	APIKeyTTL time.Duration
 
 
 	// InviteTTL is separate from LoginTokenTTL, and much longer, because the
@@ -661,6 +672,7 @@ func ( file *File ) Validate() ( err error ) {
 	check( auth.LoginTokenTTLSeconds > 0 , "auth.login_token_ttl_seconds must be positive" )
 	check( auth.MultiUseLoginTokenTTLSeconds > 0 , "auth.multi_use_login_token_ttl_seconds must be positive" )
 	check( auth.InviteTTLSeconds > 0 , "auth.invite_ttl_seconds must be positive" )
+	check( auth.APIKeyTTLSeconds > 0 , "auth.api_key_ttl_seconds must be positive" )
 
 	logs := file.Logs
 	check( logs.RetentionDays >= 1 && logs.RetentionDays <= 3650 , "logs.retention_days must be 1-3650, got %d" , logs.RetentionDays )
@@ -1028,6 +1040,8 @@ func build( file *File , path string , paths Paths , secret_key string ) ( cfg *
 		LoginTokenTTL: seconds( file.Auth.LoginTokenTTLSeconds ),
 		MultiUseLoginTokenTTL: seconds( file.Auth.MultiUseLoginTokenTTLSeconds ),
 
+		APIKeysEnabled: file.Auth.APIKeys,
+		APIKeyTTL:      seconds( file.Auth.APIKeyTTLSeconds ),
 		Maintenance:    file.Server.Maintenance,
 		Announcement:   file.Server.Announcement,
 		LiveReload:     file.Server.LiveReload,

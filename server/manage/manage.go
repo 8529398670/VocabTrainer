@@ -56,6 +56,10 @@ Usage:
   revoke-access   -user-id 3         end every session, login link and API key
   delete-user     -user-id 3 -yes    remove the account and everything it held
   transfer-owner  -user-id 3         make another enabled admin the owner
+  list-keys       [-user-id 3]       API keys, whose they are, when last used
+  create-key      -user-id 3 -name "CI" [-role user] [-days 90]
+  revoke-key      -key-id abc123     kill one API key now, keep its record
+  delete-key      -key-id abc123     kill one API key now and remove its record
   backup          [-out path] [-include-key]
                                      one file with the database, config.yaml and
                                      storage, safe while the server runs
@@ -72,6 +76,10 @@ The owner is the first admin, and the one account that can delete other
 admins from the web UI. Nothing deletes or disables the owner -- move it with
 transfer-owner first. delete-user cannot be undone, hence -yes.
 
+An API key carries a role from the same set users do, so an admin-scoped key
+can do what an admin can and a user-scoped one cannot. A key never outranks
+the account it belongs to. -days 0 means it never expires; omit -days to use
+the server's configured default.
 
 A backup leaves secret.key out unless -include-key says otherwise, so keep a
 copy of the key apart from your backups. Without it a backup cannot be read.
@@ -115,6 +123,10 @@ type backend interface {
 	RevokeAccess( user_id uint64 ) ( revoked models.Revoked , err error )
 	DeleteUser( user_id uint64 ) ( removed models.Revoked , err error )
 	TransferOwner( user_id uint64 ) ( user control.UserResponse , err error )
+	ListAPIKeys( user_id uint64 ) ( keys []control.APIKeyResponse , err error )
+	CreateAPIKey( user_id uint64 , name string , role string , expires_in_days *int ) ( key control.APIKeyResponse , err error )
+	RevokeAPIKey( key_id string ) ( key control.APIKeyResponse , err error )
+	DeleteAPIKey( key_id string ) ( key control.APIKeyResponse , err error )
 	Backup( options backup.Options ) ( result backup.Result , err error )
 	AnyAdminExists() ( result bool , err error )
 	ListInvites() ( invites []control.InviteResponse , err error )
@@ -207,6 +219,14 @@ func Run( arguments []string ) ( err error ) {
 		err = commandDeleteUser( back , rest )
 	case "transfer-owner":
 		err = commandTransferOwner( back , rest )
+	case "list-keys":
+		err = commandListKeys( back , rest )
+	case "create-key":
+		err = commandCreateKey( back , cfg , rest )
+	case "revoke-key":
+		err = commandRevokeKey( back , rest )
+	case "delete-key":
+		err = commandDeleteKey( back , rest )
 	case "backup":
 		err = commandBackup( back , rest )
 	default:
@@ -334,9 +354,25 @@ func ( b *controlBackend ) TransferOwner( user_id uint64 ) ( user control.UserRe
 	return
 }
 
+func ( b *controlBackend ) DeleteAPIKey( key_id string ) ( key control.APIKeyResponse , err error ) {
+	key , err = b.client.DeleteAPIKey( key_id )
+	return
+}
 
+func ( b *controlBackend ) ListAPIKeys( user_id uint64 ) ( keys []control.APIKeyResponse , err error ) {
+	keys , err = b.client.ListAPIKeys( user_id )
+	return
+}
 
+func ( b *controlBackend ) CreateAPIKey( user_id uint64 , name string , role string , expires_in_days *int ) ( key control.APIKeyResponse , err error ) {
+	key , err = b.client.CreateAPIKey( user_id , name , role , expires_in_days )
+	return
+}
 
+func ( b *controlBackend ) RevokeAPIKey( key_id string ) ( key control.APIKeyResponse , err error ) {
+	key , err = b.client.RevokeAPIKey( key_id )
+	return
+}
 
 
 func ( b *controlBackend ) Backup( options backup.Options ) ( result backup.Result , err error ) {
@@ -480,11 +516,111 @@ func ( b *directBackend ) TransferOwner( user_id uint64 ) ( user control.UserRes
 	return
 }
 
+// fromKeyModel mirrors control's own conversion so that a listing looks the
+// same whether it came over the socket or out of the database.
+func fromKeyModel( key *models.APIKey , display_name string , credential string ) ( result control.APIKeyResponse ) {
+	result = control.APIKeyResponse{
+		ID:          key.ID,
+		UserID:      key.UserID,
+		DisplayName: display_name,
+		Name:        key.Name,
+		Role:        key.Role,
+		Live:        key.Live(),
+		Revoked:     key.Revoked(),
+		Expired:     key.Expired(),
+		CreatedAt:   key.CreatedAt,
+		ExpiresAt:   key.ExpiresAt,
+		LastUsedAt:  key.LastUsedAt,
+		RevokedAt:   key.RevokedAt,
+		Credential:  credential,
+	}
+	return
+}
 
+// displayNames is one pass over the users bucket, rather than a read per key.
+func ( b *directBackend ) displayNames() ( names map[ uint64 ]string , err error ) {
+	names = map[ uint64 ]string{}
+	users , err := models.ListUsers( b.store )
+	if err != nil { return }
+	for _ , user := range users {
+		names[ user.ID ] = user.DisplayName
+	}
+	return
+}
 
+func ( b *directBackend ) ListAPIKeys( user_id uint64 ) ( keys []control.APIKeyResponse , err error ) {
+	var stored []*models.APIKey
+	if user_id == 0 {
+		stored , err = models.ListAPIKeys( b.store )
+	} else {
+		stored , err = models.ListAPIKeysForUser( b.store , user_id )
+	}
+	if err != nil { return }
 
+	names , err := b.displayNames()
+	if err != nil { return }
 
+	keys = []control.APIKeyResponse{}
+	for _ , key := range stored {
+		keys = append( keys , fromKeyModel( key , names[ key.UserID ] , "" ) )
+	}
+	return
+}
 
+func ( b *directBackend ) CreateAPIKey( user_id uint64 , name string , role string , expires_in_days *int ) ( key control.APIKeyResponse , err error ) {
+	// Refuse rather than mint something that cannot be used: with the feature
+	// off the server ignores the Authorization header entirely.
+	if b.cfg.APIKeysEnabled == false {
+		err = fmt.Errorf( "api keys are disabled on this server (auth.api_keys: false)" )
+		return
+	}
+
+	owner , err := models.GetUser( b.store , user_id )
+	if err != nil {
+		err = fmt.Errorf( "no user with id %d" , user_id )
+		return
+	}
+	ttl , ok := models.APIKeyTTLFromDays( expires_in_days , b.cfg.APIKeyTTL )
+	if ok == false {
+		err = fmt.Errorf( "-days must be 0 (never) or up to %d" , models.APIKeyMaxDays )
+		return
+	}
+
+	credential , created , err := models.IssueAPIKey( b.store , owner.ID , name , role , ttl )
+	if err != nil { return }
+	key = fromKeyModel( created , owner.DisplayName , credential )
+	return
+}
+
+func ( b *directBackend ) RevokeAPIKey( key_id string ) ( key control.APIKeyResponse , err error ) {
+	found , err := models.GetAPIKey( b.store , key_id )
+	if err != nil {
+		err = fmt.Errorf( "no api key with id %s" , key_id )
+		return
+	}
+	if err = models.RevokeAPIKey( b.store , found.ID ); err != nil { return }
+
+	refreshed , err := models.GetAPIKey( b.store , found.ID )
+	if err != nil { return }
+	names , err := b.displayNames()
+	if err != nil { return }
+	key = fromKeyModel( refreshed , names[ refreshed.UserID ] , "" )
+	return
+}
+
+func ( b *directBackend ) DeleteAPIKey( key_id string ) ( key control.APIKeyResponse , err error ) {
+	found , err := models.GetAPIKey( b.store , key_id )
+	if err != nil {
+		err = fmt.Errorf( "no api key with id %s" , key_id )
+		return
+	}
+	names , err := b.displayNames()
+	if err != nil { return }
+	// The CLI has no undo, so its delete is the hard one (see PurgeAPIKey).
+	if err = models.PurgeAPIKey( b.store , found.ID ); err != nil { return }
+	key = fromKeyModel( found , names[ found.UserID ] , "" )
+	return
+}
 
 
 func ( b *directBackend ) AnyAdminExists() ( result bool , err error ) {
@@ -815,12 +951,130 @@ func commandListUsers( back backend ) ( err error ) {
 	return
 }
 
+// formatKeyTime keeps the listings narrow. Minute precision is enough for
+// "when was this last used" and a full RFC3339 stamp per column would make the
+// table wrap on any normal terminal.
+func formatKeyTime( value *time.Time , absent string ) ( result string ) {
+	result = absent
+	if value != nil {
+		result = value.Local().Format( "2006-01-02 15:04" )
+	}
+	return
+}
+
+func keyStatus( key control.APIKeyResponse ) ( result string ) {
+	switch {
+	case key.Revoked:
+		result = "revoked"
+	case key.Expired:
+		result = "expired"
+	default:
+		result = "active"
+	}
+	return
+}
+
+func commandListKeys( back backend , arguments []string ) ( err error ) {
+	set := flag.NewFlagSet( "list-keys" , flag.ExitOnError )
+	user_id := set.Uint64( "user-id" , 0 , "only this user's keys (default: everyone's)" )
+	set.Parse( arguments )
+
+	keys , err := back.ListAPIKeys( *user_id )
+	if err != nil { return }
+	if len( keys ) == 0 {
+		fmt.Println( "No API keys. Create one with: manage create-key -user-id <id> -name \"CI\"" )
+		return
+	}
+
+	fmt.Printf( "%-18s %-22s %-6s %-20s %-8s %-16s %s\n" ,
+		"KEY ID" , "NAME" , "ROLE" , "OWNER" , "STATUS" , "LAST USED" , "EXPIRES" )
+	for _ , key := range keys {
+		owner := key.DisplayName
+		if owner == "" {
+			owner = fmt.Sprintf( "#%d" , key.UserID )
+		}
+		fmt.Printf( "%-18s %-22s %-6s %-20s %-8s %-16s %s\n" ,
+			key.ID , key.Name , key.Role , owner , keyStatus( key ) ,
+			formatKeyTime( key.LastUsedAt , "never" ) ,
+			formatKeyTime( key.ExpiresAt , "never" ) )
+	}
+	return
+}
+
+// commandCreateKey is how a CI system or a cron job gets a credential without
+// anyone signing in. The -role flag is what "mirroring admin and non-admin
+// permissions" means in practice: -role admin produces a key that can do what
+// an admin can, and the default produces one that cannot.
+//
+// -days is deliberately three-valued: omitted uses the server's default, 0
+// means the key never expires, and a number is that many days.
+func commandCreateKey( back backend , cfg *config.Config , arguments []string ) ( err error ) {
+	set := flag.NewFlagSet( "create-key" , flag.ExitOnError )
+	user_id := set.Uint64( "user-id" , 0 , "id of the account the key belongs to" )
+	name := set.String( "name" , "" , "what this key is for, e.g. \"deploy bot\"" )
+	role := set.String( "role" , models.RoleUser , "admin or user (never more than the account has)" )
+	days := set.Int( "days" , -1 , "lifetime in days; 0 never expires; omit for the server default" )
+	set.Parse( arguments )
+
+	if models.ValidAPIKeyName( *name ) == false {
+		err = fmt.Errorf( "-name is required (1-80 characters)" )
+		return
+	}
+	if models.ValidRole( *role ) == false {
+		err = fmt.Errorf( "-role must be admin or user" )
+		return
+	}
+
+	// A negative value is the "flag not given" signal, which the API expresses
+	// as an absent field rather than a number.
+	var expires_in_days *int
+	if *days >= 0 {
+		expires_in_days = days
+	}
+
+	key , err := back.CreateAPIKey( *user_id , *name , *role , expires_in_days )
+	if err != nil { return }
+
+	expires := formatKeyTime( key.ExpiresAt , "never" )
+	bootstrap.PrintAPIKey( cfg ,
+		fmt.Sprintf( "%s-scoped %q for #%d %q" , key.Role , key.Name , key.UserID , key.DisplayName ) ,
+		key.Credential , expires )
+	return
+}
 
 
+func commandRevokeKey( back backend , arguments []string ) ( err error ) {
+	set := flag.NewFlagSet( "revoke-key" , flag.ExitOnError )
+	key_id := set.String( "key-id" , "" , "id of the key to revoke (from list-keys)" )
+	set.Parse( arguments )
 
+	if *key_id == "" {
+		err = fmt.Errorf( "-key-id is required (see: manage list-keys)" )
+		return
+	}
 
+	key , err := back.RevokeAPIKey( *key_id )
+	if err != nil { return }
+	fmt.Printf( "api key %s (%q, owner #%d) revoked -- it stops working immediately\n" , key.ID , key.Name , key.UserID )
+	return
+}
 
+// commandDeleteKey is revoke-key without the record left behind.
+func commandDeleteKey( back backend , arguments []string ) ( err error ) {
+	set := flag.NewFlagSet( "delete-key" , flag.ExitOnError )
+	key_id := set.String( "key-id" , "" , "id of the key to delete (from list-keys)" )
+	set.Parse( arguments )
 
+	if *key_id == "" {
+		err = fmt.Errorf( "-key-id is required (see: manage list-keys)" )
+		return
+	}
+
+	key , err := back.DeleteAPIKey( *key_id )
+	if err != nil { return }
+	fmt.Printf( "api key %s (%q, owner #%d) deleted -- it stops working immediately\n" , key.ID , key.Name , key.UserID )
+	return
+}
 
 // commandDeleteUser asks for -yes because nothing brings the account back:
 // the id is never reused and its keys and links are gone with it. Disabling
@@ -838,7 +1092,7 @@ func commandDeleteUser( back backend , arguments []string ) ( err error ) {
 
 	removed , err := back.DeleteUser( *user_id )
 	if err != nil { return }
-	fmt.Printf( "user #%d deleted, with %d sessions and %d login links\n" , *user_id , removed.Sessions , removed.LoginLinks )
+	fmt.Printf( "user #%d deleted, with %d sessions, %d login links and %d API keys\n" , *user_id , removed.Sessions , removed.LoginLinks , removed.APIKeys )
 	return
 }
 
@@ -967,6 +1221,7 @@ func commandRevokeAccess( back backend , arguments []string ) ( err error ) {
 	revoked , err := back.RevokeAccess( *user_id )
 	if err != nil { return }
 	report := fmt.Sprintf( "user #%d: ended %d sessions, deleted %d live login links" , *user_id , revoked.Sessions , revoked.LoginLinks )
+	report += fmt.Sprintf( ", revoked %d API keys" , revoked.APIKeys )
 	fmt.Println( report )
 	fmt.Printf( "To let them back in: reissue-login -user-id %d\n" , *user_id )
 	return

@@ -199,6 +199,7 @@ func SetUserRole( store *db.Store , user_id uint64 , actor_id uint64 , role stri
 		if tx_err = tx.Put( db.BucketUsers , key , user ); tx_err != nil { return }
 		changed = true
 		if user.IsAdmin() == false {
+			tx_err = voidWhatKeysMadeTx( tx , user_id )
 			return
 		}
 		if _ , tx_err = destroySessionsForUser( tx , user_id ); tx_err != nil { return }
@@ -256,6 +257,7 @@ func SetUserDisabledAs( store *db.Store , user_id uint64 , actor_id uint64 , dis
 		if disabled == false { return }
 		if _ , tx_err = destroySessionsForUser( tx , user_id ); tx_err != nil { return }
 		if _ , tx_err = deletePendingLoginTokens( tx , user_id ); tx_err != nil { return }
+		if tx_err = voidWhatKeysMadeTx( tx , user_id ); tx_err != nil { return }
 		return
 	} )
 	return

@@ -97,6 +97,7 @@ func ( handlers *Handlers ) loginLinkOptions( c fiber.Ctx , request models.Login
 		refused = refuse( fiber.StatusBadRequest , resolve_err.Error() )
 		return
 	}
+	options.MintedByKey = security.ActorFrom( c ).KeyID()
 	return
 }
 

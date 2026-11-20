@@ -78,6 +78,28 @@ func TestListRoutesRefuseABadPage( t *testing.T ) {
 	}
 }
 
+// A key's bucket key is random, so pages only hold still if the list is sorted.
+func TestAPIKeysListNewestFirst( t *testing.T ) {
+	fixture := newAuthFixture( t )
+	for index := 0; index < 8; index++ {
+		time.Sleep( time.Millisecond )
+		if _ , _ , err := models.IssueAPIKey( fixture.store , fixture.owner.ID , fmt.Sprintf( "key %d" , index ) , models.RoleUser , time.Hour ); err != nil {
+			t.Fatal( err )
+		}
+	}
+	for _ , load := range []func() ( []*models.APIKey , error ){
+		func() ( []*models.APIKey , error ) { return models.ListAPIKeys( fixture.store ) },
+		func() ( []*models.APIKey , error ) { return models.ListAPIKeysForUser( fixture.store , fixture.owner.ID ) },
+	} {
+		keys , err := load()
+		if err != nil { t.Fatal( err ) }
+		for index := 1; index < len( keys ); index++ {
+			if keys[ index ].CreatedAt.After( keys[ index-1 ].CreatedAt ) {
+				t.Fatalf( "row %d is newer than the one before it" , index )
+			}
+		}
+	}
+}
 
 func TestMatchRowsLooksInTheNamedFieldsOnly( t *testing.T ) {
 	rows := []fiber.Map{
@@ -105,6 +127,18 @@ func TestMatchRowsLooksInTheNamedFieldsOnly( t *testing.T ) {
 	}
 }
 
+func TestSearchingNarrowsTheTotalAndSortStillApplies( t *testing.T ) {
+	fixture := newAuthFixture( t )
+	owner := fixture.signIn( t , fixture.owner.ID )
+	for _ , name := range []string{ "Zebra deploy" , "alpha deploy" , "backup" } {
+		if status , reply := send( t , owner , "/api/keys" , fiber.Map{ "name": name , "role": "user" } ); status != fiber.StatusCreated { t.Fatalf( "%d %v" , status , reply ) }
+	}
+	status , page := owner.do( t , http.MethodGet , "/api/keys?q=deploy&sort=name&limit=1" , nil )
+	rows , _ := page[ "keys" ].( []any )
+	if status != 200 || page[ "total" ] != float64( 2 ) || rows[ 0 ].( map[ string ]any )[ "name" ] != "alpha deploy" { t.Fatalf( "%d %v" , status , page ) }
+	if _ , page = owner.do( t , http.MethodGet , "/api/admin/keys?q=Owner" , nil ); page[ "total" ] != float64( 3 ) { t.Fatalf( "%v" , page ) }
+	if _ , page = owner.do( t , http.MethodGet , "/api/keys?q=Owner" , nil ); page[ "total" ] != float64( 0 ) { t.Fatalf( "%v" , page ) }
+}
 
 func TestTheUsersListSaysWhoAndSince( t *testing.T ) {
 	fixture := newAuthFixture( t )
@@ -117,6 +151,23 @@ func TestTheUsersListSaysWhoAndSince( t *testing.T ) {
 	if _ , present := row[ "password_hash" ]; present { t.Fatalf( "%v" , row ) }
 }
 
+func TestHidingDeadKeys( t *testing.T ) {
+	fixture := newAuthFixture( t )
+	owner := fixture.signIn( t , fixture.owner.ID )
+	if _ , _ , err := models.IssueAPIKey( fixture.store , fixture.owner.ID , "live" , models.RoleUser , time.Hour ); err != nil { t.Fatal( err ) }
+	_ , revoked , err := models.IssueAPIKey( fixture.store , fixture.owner.ID , "revoked" , models.RoleUser , time.Hour )
+	if err != nil { t.Fatal( err ) }
+	if err = models.RevokeAPIKey( fixture.store , revoked.ID ); err != nil { t.Fatal( err ) }
+	if _ , _ , err = models.IssueAPIKey( fixture.store , fixture.owner.ID , "expired" , models.RoleUser , time.Millisecond ); err != nil { t.Fatal( err ) }
+	time.Sleep( 5 * time.Millisecond )
+
+	for _ , path := range []string{ "/api/keys" , "/api/admin/keys" } {
+		if _ , page := owner.do( t , http.MethodGet , path , nil ); page[ "total" ] != float64( 3 ) { t.Fatalf( "%s %v" , path , page ) }
+		_ , page := owner.do( t , http.MethodGet , path+"?live=true" , nil )
+		rows , _ := page[ "keys" ].( []any )
+		if len( rows ) != 1 || rows[ 0 ].( map[ string ]any )[ "name" ] != "live" { t.Fatalf( "%s %v" , path , page ) }
+	}
+}
 
 func TestSortRowsPutsEachKindInOrder( t *testing.T ) {
 	early := time.Date( 2026 , 1 , 1 , 0 , 0 , 0 , 0 , time.UTC )

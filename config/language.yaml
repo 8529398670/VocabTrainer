@@ -239,6 +239,14 @@ account:
   save_button: "Save"
   saved_notice: "Saved."
   logout_button: "Log out"
+  # A login link for your own account (the "another device" card).
+  device_heading: "Sign in on another device"
+  device_description: "Make a link that signs this account in on another phone or computer. It works once, then stops. Making a new one stops the last."
+  device_button: "Make a one-time link"
+  device_cancel_button: "Stop this link"
+  device_cancelled: "That link no longer works."
+  # {minutes} is how long it stays good.
+  device_notice: "Open this on the other device within {minutes} minutes. It works once. Treat it like a password."
 
 admin:
   heading: "Admin"
@@ -355,6 +363,70 @@ errors:
   network: "Could not reach the server."
 
 # The readable API reference at /docs/api (static/docs.html).
+api_keys:
+  empty: "No API keys yet."
+  all_empty: "No one has an API key yet."
+  search_label: "Search by name"
+  all_search_label: "Search by name or owner"
+  live_only_label: "Hide revoked and expired keys"
+  heading: "API keys"
+  description: "For scripts, cron jobs, and other services. A key does exactly what your account can do -- send it as an Authorization: Bearer header. It is shown once."
+  name_label: "What is it for"
+  name_placeholder: "Bot-1"
+  role_label: "Permission"
+  role_user: "user"
+  role_admin: "admin (can manage accounts)"
+  # Under the description, with a link to the API reference: api.json in
+  # app.repo, or this server's own copy.
+  spec_text: "What a key can call:"
+  spec_link: "API reference (api.json)"
+  # Beside it: the same reference as tables, config/api.md, on the repository's
+  # site when app.repo is set, else on this server's /docs/api page.
+  doc_link: "readable version (api.md)"
+  days_label: "Expires in (days)"
+  days_placeholder: "leave blank for the default, 0 for never"
+  create_button: "Create key"
+  secret_notice: "Copy this now. It is shown once and cannot be recovered -- if you lose it, revoke the key and create another."
+  copy_button: "Copy"
+  table_name: "Name"
+  table_role: "Permission"
+  table_status: "Status"
+  table_last_used: "Last used"
+  table_expires: "Expires"
+  table_actions: "Actions"
+  status_active: "active"
+  status_revoked: "revoked"
+  status_expired: "expired"
+  never: "never"
+  # Empty expiry_button to take the button away.
+  expiry_button: "Expiry"
+  # {name} is the key's name.
+  expiry_heading: "Change when {name} expires"
+  expiry_help: "Counted from today. 0 means it never expires."
+  expiry_changed: "Expiry changed."
+  # Letting a key make a login link for your account (an agent signing you in
+  # on a browser). Off by default; the button shows the state it is in.
+  # Empty both button strings to take the switch away.
+  sign_in_off_button: "Sign-in links: off"
+  sign_in_on_button: "Sign-in links: on"
+  # Beside the status while it is on.
+  status_sign_in: "can sign in"
+  # Asked before turning it on. Empty it to stop asking.
+  sign_in_confirm: "Let this key make sign-in links for your account? Whoever holds the key could then open a browser signed in as you, with everything you can do there. Each link works once, for 15 minutes. You can turn this off again at any time."
+  sign_in_turned_on: "This key can now make sign-in links."
+  sign_in_turned_off: "This key can no longer make sign-in links. Any unused link it made has stopped working."
+  revoke_button: "Revoke"
+  # Empty this string to stop asking for confirmation before revoking.
+  revoke_confirm: "Revoke this key? Anything using it stops working immediately."
+  delete_button: "Delete"
+  # Under a key an admin made for someone else. {name} is that admin.
+  created_by: "Created by {name}"
+  # Followed by when, as in "Created 3 days ago".
+  created: "Created"
+
+# The readable API and MCP references (static/docs.html, static/js/docs.js):
+# /docs/api and /docs/mcp, linked from the API keys and MCP cards when
+# app.repo is not set.
 docs:
   api_title: "API reference"
   back: "Back to the app"

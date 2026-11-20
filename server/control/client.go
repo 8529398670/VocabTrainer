@@ -206,10 +206,36 @@ func ( client *Client ) RevokeAccess( user_id uint64 ) ( revoked models.Revoked 
 }
 
 
+// ListAPIKeys returns every key, or one user's when user_id is non-zero.
+func ( client *Client ) ListAPIKeys( user_id uint64 ) ( keys []APIKeyResponse , err error ) {
+	keys = []APIKeyResponse{}
+	path := "/v1/api-keys"
+	if user_id != 0 {
+		path = fmt.Sprintf( "%s?user_id=%d" , path , user_id )
+	}
+	err = client.do( http.MethodGet , path , nil , &keys )
+	return
+}
+
+// CreateAPIKey mints a key for a user. The response carries the credential,
+// which is the only time it exists outside the caller that asked for it.
+func ( client *Client ) CreateAPIKey( user_id uint64 , name string , role string , expires_in_days *int ) ( key APIKeyResponse , err error ) {
+	err = client.do( http.MethodPost , "/v1/api-keys" ,
+		CreateAPIKeyRequest{ UserID: user_id , Name: name , Role: role , ExpiresInDays: expires_in_days } , &key )
+	return
+}
+
+func ( client *Client ) RevokeAPIKey( key_id string ) ( key APIKeyResponse , err error ) {
+	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/api-keys/%s/revoke" , key_id ) , nil , &key )
+	return
+}
 
 
-
-
+// DeleteAPIKey returns the key as it was just before it was removed.
+func ( client *Client ) DeleteAPIKey( key_id string ) ( key APIKeyResponse , err error ) {
+	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/api-keys/%s/delete" , key_id ) , nil , &key )
+	return
+}
 
 func ( client *Client ) DeleteUser( user_id uint64 ) ( removed models.Revoked , err error ) {
 	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/users/%d/delete" , user_id ) , nil , &removed )

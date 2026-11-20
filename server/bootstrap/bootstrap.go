@@ -43,6 +43,27 @@ func EnsureFirstAdmin( store *db.Store , cfg *config.Config , display_name strin
 	return
 }
 
+// PrintAPIKey writes the one moment an API key is ever visible. It lives
+// beside PrintLoginLink so that every path which reveals a credential is in
+// one file, with one shape and one warning.
+//
+// Unlike a login link this is a complete credential, not a URL; the example
+// request uses the same address the links do (see linkNote).
+func PrintAPIKey( cfg *config.Config , label string , credential string , expires string ) {
+	line := strings.Repeat( "-" , 72 )
+	fmt.Println( line )
+	fmt.Printf( "  API KEY -- %s\n" , label )
+	fmt.Println( line )
+	fmt.Printf( "  %s\n" , credential )
+	fmt.Println( line )
+	fmt.Printf( "  Expires: %s\n" , expires )
+	fmt.Println( "  Send it as a header:" )
+	fmt.Printf( "    curl -H \"Authorization: Bearer %s\" %s/api/me\n" , credential , cfg.URL )
+	linkNote( cfg )
+	fmt.Println( "  It is not stored anywhere and cannot be shown again. If it leaks," )
+	fmt.Println( "  revoke it: vocabtrainer manage revoke-key -key-id <id>" )
+	fmt.Println( line )
+}
 
 // PrintLoginLink writes the one moment a credential is ever visible, as one
 // full URL you can click. The address is server.public_url when set; without

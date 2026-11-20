@@ -11,6 +11,7 @@
 package security
 
 import (
+	strings "strings"
 	time "time"
 
 	fiber "github.com/gofiber/fiber/v3"
@@ -32,6 +33,7 @@ const keyActor contextKey = "current_actor"
 // tell a browser session from a key without guessing.
 const (
 	MethodSession = "session"
+	MethodAPIKey  = "api_key"
 )
 
 // Actor is who a request belongs to, plus how they proved it.
@@ -42,6 +44,7 @@ const (
 type Actor struct {
 	User    *models.User
 	Session *models.Session
+	APIKey  *models.APIKey
 	Role    string
 }
 
@@ -53,17 +56,23 @@ func ( actor *Actor ) IsAdmin() ( result bool ) {
 // ViaAPIKey distinguishes the two doors. It decides the CSRF question below,
 // and it is what an endpoint reads if it genuinely must be browser-only.
 func ( actor *Actor ) ViaAPIKey() ( result bool ) {
+	result = actor.APIKey != nil
 	return
 }
 
 // KeyID is the id of the API key this request came with, or "" for a browser
-// session.
+// session. A login link or invite link a key makes records it, so revoking the
+// key voids them (see models.VoidLinksMintedByKeyTx).
 func ( actor *Actor ) KeyID() ( result string ) {
+	if actor.APIKey != nil { result = actor.APIKey.ID }
 	return
 }
 
 func ( actor *Actor ) Method() ( result string ) {
 	result = MethodSession
+	if actor.ViaAPIKey() {
+		result = MethodAPIKey
+	}
 	return
 }
 
@@ -151,7 +160,15 @@ func ( guard *Guard ) DecryptCookie( raw string ) ( credential string , err erro
 // that skips the token check by carrying a key needed that key to begin with.
 func ( guard *Guard ) LoadUser( c fiber.Ctx ) ( err error ) {
 	var actor *Actor
-	actor = guard.resolveSession( c )
+	// A request that names a key in its Authorization header acts as that key
+	// and nothing else, even from a browser that is signed in: a script using
+	// a narrow key must not quietly run as the full account whose cookie
+	// happens to be in the jar. A bad key is no one, not the cookie.
+	if hasBearer( c ) {
+		actor = guard.resolveAPIKey( c )
+	} else {
+		actor = guard.resolveSession( c )
+	}
 	if actor != nil {
 		c.Locals( keyActor , actor )
 	}
@@ -178,6 +195,45 @@ func ( guard *Guard ) resolveSession( c fiber.Ctx ) ( actor *Actor ) {
 	return
 }
 
+// hasBearer is true when the request carries any Authorization header. Any
+// at all is an attempt at a key, and one that does not hold a good key is
+// nobody (resolveAPIKey): it never falls back to the cookie. Splitting only on
+// a space let "Bearer<TAB>key" fall back and run as the signed-in account
+// (S16).
+func hasBearer( c fiber.Ctx ) ( result bool ) {
+	result = strings.TrimSpace( c.Get( fiber.HeaderAuthorization ) ) != ""
+	return
+}
+
+// resolveAPIKey reads "Authorization: Bearer <id>.<secret>".
+//
+// One header and one scheme, deliberately: a second accepted spelling (an
+// X-API-Key, a query parameter) is a second code path to audit, and a
+// credential in a query string ends up in access logs and browser history.
+//
+// APIKeysEnabled is checked here rather than only on the routes that mint
+// keys, so turning the feature off actually closes the door: the header stops
+// being believed at all, and existing keys stop authenticating.
+func ( guard *Guard ) resolveAPIKey( c fiber.Ctx ) ( actor *Actor ) {
+	if guard.cfg().APIKeysEnabled == false { return }
+
+	// The scheme and the key, split on any whitespace, and nothing else.
+	parts := strings.Fields( c.Get( fiber.HeaderAuthorization ) )
+	if len( parts ) != 2 || strings.EqualFold( parts[ 0 ] , "bearer" ) == false { return }
+	credential := parts[ 1 ]
+
+	key , user := models.LoadAPIKey( guard.Store , credential )
+	if user == nil { return }
+
+	actor = &Actor{
+		User:   user,
+		APIKey: key,
+		// The ceiling, applied per request. See models.NarrowRole: the stored
+		// role is what was asked for, this is what is granted.
+		Role: models.NarrowRole( user.Role , key.Role ),
+	}
+	return
+}
 
 // RequireLogin, RequireAdmin, RequireSession and RequireAPIKey are middleware rather than
 // helpers called at the top of each handler, so a new protected route is
@@ -211,6 +267,19 @@ func ( guard *Guard ) RequireAdmin( c fiber.Ctx ) ( err error ) {
 // minting, renaming and revoking API keys, your own password, PIN and
 // two-factor, other people's files, and the owner's screens.
 //
+// Accounts and ways in are not on that list. An admin key may create and
+// delete accounts, change roles and hand out login links and invite links.
+// A key makes its own account a login link only once that account switched
+// it on for the key, from a session (models.APIKey.MaySignIn), and then one
+// that works once, for at most 15 minutes. What keeps
+// revoking a leaked key meaningful is that every link records the key that
+// made it, and revoking or deleting the key voids those still usable and ends
+// every session one of its login links signed in (models.VoidLinksMintedByKeyTx).
+// Disabling or demoting the key's account does the same for all its keys.
+// What it does not undo is anything such a session did meanwhile, or the
+// accounts made through an invite link it handed out: those show in the
+// activity log and the user list.
+//
 // Keys themselves stay browser-only: a key that could mint a key would leave
 // a successor behind with nothing to tie it to the one revoked.
 func ( guard *Guard ) RequireSession( c fiber.Ctx ) ( err error ) {
@@ -227,6 +296,25 @@ func ( guard *Guard ) RequireSession( c fiber.Ctx ) ( err error ) {
 	return
 }
 
+// RequireAPIKey is RequireSession's mirror: it refuses a browser session and
+// lets only a key through. It guards /mcp, which is for agents and scripts.
+// Taking only a header credential there means no ambient cookie can ride
+// along on a request some other page caused, so the endpoint needs no CSRF
+// token and the no-credentials rule for keys covers everything it can do.
+func ( guard *Guard ) RequireAPIKey( c fiber.Ctx ) ( err error ) {
+	actor := ActorFrom( c )
+	if actor == nil {
+		c.Set( fiber.HeaderWWWAuthenticate , "Bearer" )
+		err = c.Status( fiber.StatusUnauthorized ).JSON( fiber.Map{ "error": "not authenticated" } )
+		return
+	}
+	if actor.ViaAPIKey() == false {
+		err = c.Status( fiber.StatusForbidden ).JSON( fiber.Map{ "error": "this endpoint requires an API key, not a signed-in session" } )
+		return
+	}
+	err = c.Next()
+	return
+}
 
 // RequireOwner lets through only the owner, signed in from a browser. It
 // guards the activity log (routes/logs.go), which shows what every account
@@ -276,6 +364,9 @@ func LogActor( actor *Actor ) ( result *logs.Actor ) {
 		Role:   actor.Role,
 		Method: actor.Method(),
 	}
+	if actor.APIKey != nil {
+		result.KeyID = actor.APIKey.ID
+	}
 	return
 }
 
@@ -302,6 +393,12 @@ func SessionFrom( c fiber.Ctx ) ( session *models.Session ) {
 	return
 }
 
+func APIKeyFrom( c fiber.Ctx ) ( key *models.APIKey ) {
+	if actor := ActorFrom( c ); actor != nil {
+		key = actor.APIKey
+	}
+	return
+}
 
 // CheckCSRF guards state-changing requests. SameSite=Strict already blocks
 // the common cross-site POST, but it is a browser-side promise: older

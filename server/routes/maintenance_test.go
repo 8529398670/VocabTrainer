@@ -12,6 +12,7 @@ import (
 	config "vocabtrainer/server/config"
 	errorpage "vocabtrainer/server/errorpage"
 	language "vocabtrainer/server/language"
+	models "vocabtrainer/server/models"
 )
 
 func testErrorPages( t *testing.T ) ( pages *errorpage.Pages ) {
@@ -22,11 +23,21 @@ func testErrorPages( t *testing.T ) ( pages *errorpage.Pages ) {
 	return
 }
 
+func keyGet( t *testing.T , fixture *authFixture , key string , path string ) ( response *http.Response ) {
+	t.Helper()
+	request , _ := http.NewRequest( http.MethodGet , path , nil )
+	request.Header.Set( "Authorization" , "Bearer " + key )
+	response , err := fixture.app.Test( request , fiber.TestConfig{ Timeout: 10 * time.Second } )
+	if err != nil { t.Fatal( err ) }
+	return
+}
 
 func TestFullMaintenanceLeavesOnlyTheOwnersSession( t *testing.T ) {
 	fixture := newAuthFixture( t )
 	owner := fixture.signIn( t , fixture.owner.ID )
 	alice := fixture.signIn( t , fixture.alice.ID )
+	owner_key , _ , err := models.IssueAPIKey( fixture.store , fixture.owner.ID , "script" , models.RoleAdmin , time.Hour )
+	if err != nil { t.Fatal( err ) }
 	fixture.cfg.Maintenance = config.MaintenanceFull
 
 	if status , reply := owner.do( t , http.MethodGet , "/api/team" , nil ); status != fiber.StatusOK {
@@ -36,6 +47,12 @@ func TestFullMaintenanceLeavesOnlyTheOwnersSession( t *testing.T ) {
 	if status != fiber.StatusServiceUnavailable || reply[ "maintenance" ] != "full" {
 		t.Fatalf( "%d %v" , status , reply )
 	}
+	// The owner's key is not the owner's session.
+	response := keyGet( t , fixture , owner_key , "/api/team" )
+	if response.StatusCode != fiber.StatusServiceUnavailable {
+		t.Fatalf( "status %d" , response.StatusCode )
+	}
+	if response.Header.Get( "Retry-After" ) == "" { t.Fatal( "no Retry-After" ) }
 
 	// Still able to find out why.
 	if status , reply = alice.do( t , http.MethodGet , "/api/me" , nil ); status != fiber.StatusOK || reply[ "maintenance" ] != "full" {

@@ -22,9 +22,12 @@ type meReply struct {
 	IsOwner            bool                  `json:"is_owner"`
 	Maintenance        string                `json:"maintenance" jsonschema:"enum=none,enum=read_only,enum=full" jsonschema_extras:"x-feature=maintenance"`
 	Auth               string                `json:"auth"`
+	APIKeysEnabled     bool                  `json:"api_keys_enabled" jsonschema_extras:"x-feature=api_keys"`
 	LogsEnabled        bool                  `json:"logs_enabled" jsonschema_extras:"x-feature=logs"`
 	LogsUIClicks       bool                  `json:"logs_ui_clicks" jsonschema_extras:"x-feature=logs"`
 	CSRFToken          string                `json:"csrf_token,omitempty" jsonschema_description:"Browser sessions only."`
+	APIKeyID           string                `json:"api_key_id,omitempty" jsonschema_description:"API keys only." jsonschema_extras:"x-feature=api_keys"`
+	APIKeyName         string                `json:"api_key_name,omitempty" jsonschema_description:"API keys only." jsonschema_extras:"x-feature=api_keys"`
 	Version            string                `json:"version" jsonschema_description:"The running build. dev when none was stamped."`
 	Announcement       string                `json:"announcement" jsonschema_description:"server.announcement. Empty when there is none."`
 	Repo               string                `json:"repo" jsonschema_description:"app.repo without a trailing / or .git: where the source lives. Empty when it is not set."`
@@ -83,6 +86,7 @@ func ( handlers *Handlers ) getMe( c fiber.Ctx , in *apidoc.None ) ( reply *meRe
 		OpenapiURL:         handlers.openAPIURL(),
 		APIDocURL:          handlers.apiDocURL(),
 		Auth:               actor.Method(),
+		APIKeysEnabled:     cfg.APIKeysEnabled,
 		// Whether track.js sends anything, and whether it sends clicks.
 		LogsEnabled:        handlers.Logs.Enabled(),
 		LogsUIClicks:       handlers.Logs.Enabled() && cfg.Logs.UIClicks,
@@ -92,6 +96,10 @@ func ( handlers *Handlers ) getMe( c fiber.Ctx , in *apidoc.None ) ( reply *meRe
 	// Guard.CheckCSRF.
 	if actor.Session != nil {
 		reply.CSRFToken = actor.Session.CSRFToken
+	}
+	if actor.APIKey != nil {
+		reply.APIKeyID = actor.APIKey.ID
+		reply.APIKeyName = actor.APIKey.Name
 	}
 	return
 }
@@ -156,10 +164,18 @@ func ( handlers *Handlers ) renameAccount( c fiber.Ctx , in *renameAccountReques
 // )
 func ( handlers *Handlers ) createMyLoginLink( c fiber.Ctx , in *models.LoginLinkRequest ) ( reply *loginLinkReply , err error ) {
 	actor := security.ActorFrom( c )
+	if actor.ViaAPIKey() && actor.APIKey.MaySignIn == false {
+		err = refuse( fiber.StatusForbidden , "this key may not make sign-in links: turn that on for it on the API keys card" )
+		return
+	}
 	options , refused := handlers.loginLinkOptions( c , *in )
 	if refused != nil {
 		err = refused
 		return
+	}
+	if actor.ViaAPIKey() {
+		options.MaxUses , options.Unlimited = 1 , false
+		if options.TTL <= 0 || options.TTL > models.KeyLoginLinkTTL { options.TTL = models.KeyLoginLinkTTL }
 	}
 	credential , info , err := models.IssueLoginLink( handlers.Store , actor.User.ID , options )
 	if err != nil { return }

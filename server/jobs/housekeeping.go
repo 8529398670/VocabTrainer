@@ -34,6 +34,9 @@ func purge( store *db.Store ) ( run Func ) {
 		tokens , tokens_err := models.PurgeExpiredLoginTokens( store )
 		note = fmt.Sprintf( "removed %d sessions, %d login links" , sessions , tokens )
 		err = errors.Join( sessions_err , tokens_err )
+		keys , keys_err := models.PurgeDeadAPIKeys( store )
+		note += fmt.Sprintf( ", %d keys" , keys )
+		err = errors.Join( err , keys_err )
 		return
 	}
 	return

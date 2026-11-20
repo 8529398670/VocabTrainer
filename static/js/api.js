@@ -73,6 +73,24 @@ const Api = {
   reissueLogin( userId )       { return this.post( "/api/admin/users/" + userId + "/reissue-login" ); },
   setDisabled( userId , flag ) { return this.post( "/api/admin/users/" + userId + "/disabled" , { disabled: flag } ); },
 
+  // A login link for your own account, to sign in on another device. An
+  // empty body asks for the default: it works once, for a short while.
+  createMyLoginLink()          { return this.post( "/api/account/login-link" ); },
+  cancelMyLoginLink()          { return this.post( "/api/account/login-link/cancel" ); },
+
+  // API keys. expiresInDays is passed through as-is, null included: the
+  // server reads absent as "use the default" and 0 as "never expires".
+  listKeys()                   { return this.request( "/api/keys" ).then( function ( reply ) { return reply.keys; } ); },
+  createKey( name , role , expiresInDays ) {
+    return this.post( "/api/keys" , { name: name , role: role , expires_in_days: expiresInDays } );
+  },
+  // Whether one of your own keys may make a login link for your account.
+  setKeySignIn( keyId , on ) {
+    return this.post( "/api/keys/" + encodeURIComponent( keyId ) + "/sign-in" , { may_sign_in: on } );
+  },
+  revokeKey( keyId )           { return this.post( "/api/keys/" + encodeURIComponent( keyId ) + "/revoke" ); },
+  deleteKey( keyId )           { return this.post( "/api/keys/" + encodeURIComponent( keyId ) + "/delete" ); },
+
   // --- signing in -------------------------------------------------------
   //
   // Opening a login or invite link only shows a page; these are the requests

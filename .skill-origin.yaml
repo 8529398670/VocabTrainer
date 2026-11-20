@@ -6,6 +6,6 @@ project_name: "VocabTrainer"
 slug: vocabtrainer
 module_path: vocabtrainer
 port: None
-features: []
-pruned: [api_keys, mcp, invite_links, metrics, webhooks, files, passwords, two_factor, backups, appearance, shortcuts]
+features: [api_keys]
+pruned: [mcp, invite_links, metrics, webhooks, files, passwords, two_factor, backups, appearance, shortcuts]
 skipped: [account-cards, bootstrap-grid, busy-buttons, desktop-layout, dismiss-boxes, editable-themes, ip-names, keys-manage-accounts, logs-date-centred, panel-buttons, row-menu, settings-tools, show-more, sort-columns, steady-scroll, theme-builtins-seen, theme-buttons, theme-layers, theme-mode-colors, theme-top-bar]

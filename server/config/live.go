@@ -241,6 +241,8 @@ func liveConfig( boot *Config , boot_file *File , file *File ) ( next *Config ) 
 	next.LoginTokenTTL = seconds( file.Auth.LoginTokenTTLSeconds )
 	next.MultiUseLoginTokenTTL = seconds( file.Auth.MultiUseLoginTokenTTLSeconds )
 	next.InviteTTL = seconds( file.Auth.InviteTTLSeconds )
+	next.APIKeysEnabled = file.Auth.APIKeys
+	next.APIKeyTTL = seconds( file.Auth.APIKeyTTLSeconds )
 
 	next.Logs.RetentionDays = file.Logs.RetentionDays
 	next.Logs.MaxTotalBytes = int64( file.Logs.MaxTotalMB ) * 1024 * 1024

@@ -24,6 +24,10 @@ import (
 // configuration.
 type SignInRules struct {
 	SessionTTL time.Duration
+	// MintedByKey is the API key that made the link being redeemed, carried
+	// to the session (and through a two-factor challenge) so revoking the
+	// key ends it. RedeemLoginToken fills it in; callers leave it empty.
+	MintedByKey string
 	// IssuedBy is the admin who reissued that link (LoginToken.IssuedBy),
 	// carried the same way. RedeemLoginToken fills it in too.
 	IssuedBy uint64
@@ -44,6 +48,7 @@ type SignIn struct {
 // a code.
 func startSignInTx( tx *db.Tx , user *User , rules SignInRules ) ( signed *SignIn , err error ) {
 	session_id , credential , session := newSession( user.ID , rules.SessionTTL )
+	session.MintedByKey = rules.MintedByKey
 	session.IssuedBy = rules.IssuedBy
 	if err = tx.Put( db.BucketSessions , []byte( session_id ) , session ); err != nil { return }
 	signed = &SignIn{ UserID: user.ID , SessionCredential: credential , IssuedBy: rules.IssuedBy }

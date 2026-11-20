@@ -18,6 +18,7 @@ import (
 	config "vocabtrainer/server/config"
 	logs "vocabtrainer/server/logs"
 	middleware "vocabtrainer/server/middleware"
+	models "vocabtrainer/server/models"
 )
 
 // monitored is the app the way main.go builds it, with the middleware and
@@ -27,6 +28,8 @@ type monitored struct {
 	app      *fiber.App
 	logDir   string
 	logger   *logs.Logger
+	adminKey string
+	userKey  string
 }
 
 func newMonitored( t *testing.T , logging bool ) ( fixture *monitored ) {
@@ -55,6 +58,9 @@ func newMonitored( t *testing.T , logging bool ) ( fixture *monitored ) {
 
 	fixture = &monitored{ authFixture: base , app: app }
 	fixture.logDir , fixture.logger = dir , logger
+	var err error
+	if fixture.adminKey , _ , err = models.IssueAPIKey( base.store , base.owner.ID , "scraper" , models.RoleAdmin , time.Hour ); err != nil { t.Fatal( err ) }
+	if fixture.userKey , _ , err = models.IssueAPIKey( base.store , base.alice.ID , "script" , models.RoleUser , time.Hour ); err != nil { t.Fatal( err ) }
 	base.app = app
 	return
 }
@@ -72,6 +78,10 @@ func ( fixture *monitored ) get( t *testing.T , path string , headers map[ strin
 	return
 }
 
+func bearer( key string ) ( headers map[ string ]string ) {
+	headers = map[ string ]string{ "Authorization": "Bearer " + key }
+	return
+}
 
 var requestIDShape = regexp.MustCompile( `^[0-9a-f]{16}$` )
 

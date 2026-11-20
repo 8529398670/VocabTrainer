@@ -33,6 +33,11 @@ type Session struct {
 	// browser and system rather than replacing them, so a name cannot hide
 	// what a device says it is.
 	Label string `json:"label,omitempty"`
+	// MintedByKey is the API key that made the login link this session came
+	// from, empty when a person made it. Revoking or deleting that key ends
+	// the session too (VoidLinksMintedByKeyTx): a key that could sign a
+	// browser in must not leave one signed in after it dies.
+	MintedByKey string `json:"minted_by_key,omitempty"`
 	// IssuedBy is the admin who reissued the login link this session came
 	// from, zero when nobody else did (see LoginToken.IssuedBy).
 	IssuedBy uint64 `json:"issued_by,omitempty"`

@@ -1,6 +1,7 @@
 package models
 
 import (
+	time "time"
 
 	db "vocabtrainer/server/db"
 	encryption "vocabtrainer/server/encryption"
@@ -11,6 +12,7 @@ import (
 type Revoked struct {
 	Sessions   int `json:"sessions"`
 	LoginLinks int `json:"login_links"`
+	APIKeys    int `json:"api_keys" jsonschema_extras:"x-feature=api_keys"`
 }
 
 // APIName names it in the API docs (see server/apidoc).
@@ -62,6 +64,26 @@ func revokeAllCredentials( store *db.Store , user_id uint64 , allow_owner bool ,
 		if revoked.Sessions , tx_err = destroySessionsForUser( tx , user_id ); tx_err != nil { return }
 		if revoked.LoginLinks , tx_err = deletePendingLoginTokens( tx , user_id ); tx_err != nil { return }
 
+		live := []*APIKey{}
+		tx_err = tx.ForEach( db.BucketAPIKeys ,
+			func() any { return &APIKey{} } ,
+			func( key []byte , item any ) bool {
+				stored := item.( *APIKey )
+				if stored.UserID == user_id && stored.Live() {
+					live = append( live , stored )
+				}
+				return true
+			} )
+		if tx_err != nil { return }
+		now := time.Now().UTC()
+		for _ , key := range live {
+			key.RevokedAt = &now
+			if tx_err = tx.Put( db.BucketAPIKeys , []byte( key.ID ) , key ); tx_err != nil { return }
+		}
+		revoked.APIKeys = len( live )
+		// What those keys made in other accounts -- links not yet used, and
+		// the browsers those signed in -- ends with them (S22).
+		tx_err = voidWhatKeysMadeTx( tx , user_id )
 		return
 	} )
 	if err != nil { revoked = Revoked{} }
@@ -104,6 +126,15 @@ func DeleteUser( store *db.Store , user_id uint64 , actor_id uint64 ) ( removed 
 
 		if removed.Sessions , tx_err = destroySessionsForUser( tx , user_id ); tx_err != nil { return }
 		if removed.LoginLinks , tx_err = deleteLoginTokensForUser( tx , user_id ); tx_err != nil { return }
+		// Before the key rows go: voidWhatKeysMadeTx finds the keys by
+		// account, and what they made in other accounts ends with them (S22).
+		if tx_err = voidWhatKeysMadeTx( tx , user_id ); tx_err != nil { return }
+		removed.APIKeys , tx_err = tx.DeleteWhere( db.BucketAPIKeys ,
+			func() any { return &APIKey{} } ,
+			func( key []byte , item any ) bool {
+				return item.( *APIKey ).UserID == user_id
+			} )
+		if tx_err != nil { return }
 		tx_err = tx.Delete( db.BucketUsers , encryption.Uint64ToBytes( user_id ) )
 		return
 	} )

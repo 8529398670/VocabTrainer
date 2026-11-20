@@ -30,6 +30,14 @@ const App = {
     Dom.get( "rename-form" ).addEventListener( "submit" , this.onRename.bind( this ) );
     Dom.get( "logout-button" ).addEventListener( "click" , this.onLogout.bind( this ) );
 
+    Dom.get( "my-link-button" ).addEventListener( "click" , this.onMyLink.bind( this ) );
+    Dom.get( "my-link-cancel-button" ).addEventListener( "click" , this.onCancelMyLink.bind( this ) );
+    Dom.get( "my-link-copy-button" ).addEventListener( "click" , function () {
+      App.copyFrom( "my-link-value" , "my-link-copied" );
+    } );
+
+    await Keys.init( me );
+
     if ( me.role !== "admin" ) return;
 
     Dom.show( Dom.get( "admin-panel" ) , true );
@@ -65,6 +73,34 @@ const App = {
       // which is the honest state to show.
     }
     window.location.href = "/";
+  },
+
+  // --- your own login link ----------------------------------------------
+
+  // An empty request asks for the default: one use, a short lifetime. Making
+  // one stops any link this account could still use.
+  async onMyLink() {
+    try {
+      const made = await Api.createMyLoginLink();
+      const minutes = Math.max( 1 , Math.round( made.expires_in_seconds / 60 ) );
+      Dom.text( Dom.get( "my-link-notice" ) , I18n.format( "account.device_notice" , { minutes: minutes } ) );
+      Dom.text( Dom.get( "my-link-value" ) , window.location.origin + made.login_path );
+      Dom.show( Dom.get( "my-link-box" ) , true );
+      Dom.show( Dom.get( "my-link-cancel-button" ) , true );
+    } catch ( error ) {
+      this.showError( error.message );
+    }
+  },
+
+  async onCancelMyLink() {
+    try {
+      await Api.cancelMyLoginLink();
+      Dom.show( Dom.get( "my-link-box" ) , false );
+      Dom.show( Dom.get( "my-link-cancel-button" ) , false );
+      Dom.flash( Dom.get( "my-link-cancelled" ) );
+    } catch ( error ) {
+      this.showError( error.message );
+    }
   },
 
   async onCreateUser( event ) {

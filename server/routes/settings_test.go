@@ -9,6 +9,7 @@ import (
 	strings "strings"
 	testing "testing"
 	fstest "testing/fstest"
+	time "time"
 
 	fiber "github.com/gofiber/fiber/v3"
 
@@ -29,6 +30,7 @@ type settingsFixture struct {
 	owner    string // a session cookie
 	csrf     string
 	admin    string // another admin's session cookie
+	key      string // the owner's admin API key
 }
 
 func useDefaults( t *testing.T ) {
@@ -42,6 +44,7 @@ func useDefaults( t *testing.T ) {
 	// about the features themselves, so they run on the template's choice
 	// whatever that was.
 	pinned , _ , err := config.EditChanges( defaults , map[string]any{
+		"auth.api_keys": true ,
 	} , "defaults.yaml" , false )
 	if err != nil { t.Fatal( err ) }
 	config.UseEmbedded( pinned , header )
@@ -67,6 +70,8 @@ func newSettingsFixture( t *testing.T ) ( fixture *settingsFixture ) {
 	owner , _ := models.CreateUser( store , "Owner" , models.RoleAdmin )
 	if _ , err = models.EnsureOwner( store ); err != nil { t.Fatal( err ) }
 	other , _ := models.CreateUser( store , "Other admin" , models.RoleAdmin )
+	key , _ , err := models.IssueAPIKey( store , owner.ID , "admin" , models.RoleAdmin , time.Hour )
+	if err != nil { t.Fatal( err ) }
 
 	settings := config.NewHolder( cfg )
 	static_server , _ := static.New( fstest.MapFS{ "index.html": { Data: []byte( "index" ) } } )
@@ -76,6 +81,7 @@ func newSettingsFixture( t *testing.T ) ( fixture *settingsFixture ) {
 	handlers.Register( app )
 
 	fixture = &settingsFixture{ app: app , settings: settings , path: path }
+	fixture.key = key
 	fixture.owner = sessionCookie( t , store , cfg , owner.ID )
 	fixture.admin = sessionCookie( t , store , cfg , other.ID )
 	_ , me := fixture.request( t , http.MethodGet , "/api/me" , fixture.owner , "" , "" )
@@ -108,6 +114,9 @@ func TestSettingsAreTheOwnersAlone( t *testing.T ) {
 	fixture := newSettingsFixture( t )
 	if status , _ := fixture.request( t , http.MethodGet , "/api/owner/settings" , fixture.admin , "" , "" ); status != 404 {
 		t.Errorf( "another admin: status %d, want 404" , status )
+	}
+	if status , _ := fixture.request( t , http.MethodGet , "/api/owner/settings" , "" , fixture.key , "" ); status != 404 {
+		t.Errorf( "the owner's API key: status %d, want 404" , status )
 	}
 	status , reply := fixture.request( t , http.MethodGet , "/api/owner/settings" , fixture.owner , "" , "" )
 	if status != 200 {

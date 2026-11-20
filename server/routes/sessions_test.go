@@ -148,6 +148,27 @@ func TestRevokeOthersKeepsThisOne( t *testing.T ) {
 	}
 }
 
+func TestAnAPIKeyManagesDevices( t *testing.T ) {
+	fixture := newAuthFixture( t )
+	phone := fixture.signIn( t , fixture.alice.ID )
+	laptop := fixture.signIn( t , fixture.alice.ID )
+	key , _ , err := models.IssueAPIKey( fixture.store , fixture.alice.ID , "script" , models.RoleUser , time.Hour )
+	if err != nil { t.Fatal( err ) }
+
+	status , page := fixture.withKey( t , key , http.MethodGet , "/api/account/sessions" , nil )
+	rows , _ := page[ "sessions" ].( []any )
+	if status != fiber.StatusOK || len( rows ) != 2 { t.Fatalf( "%d %v" , status , page ) }
+	for _ , row := range rows {
+		if row.( map[ string ]any )[ "current" ] == true { t.Fatalf( "a key has no current device: %v" , row ) }
+	}
+	id := rows[ 0 ].( map[ string ]any )[ "id" ].( string )
+	if status , reply := fixture.withKey( t , key , http.MethodPost , "/api/account/sessions/"+id+"/label" , fiber.Map{ "label": "Phone" } ); status != fiber.StatusOK { t.Fatalf( "label: %d %v" , status , reply ) }
+
+	// No device is "this one" through a key, so revoke-others ends them all.
+	status , reply := fixture.withKey( t , key , http.MethodPost , "/api/account/sessions/revoke-others" , fiber.Map{} )
+	if status != fiber.StatusOK || reply[ "removed" ] != float64( 2 ) { t.Fatalf( "%d %v" , status , reply ) }
+	if phone.signedIn( t ) || laptop.signedIn( t ) { t.Fatal( "a device stayed signed in" ) }
+}
 
 // sessionsOf reads an account's session records straight from the bucket.
 func ( fixture *authFixture ) sessionsOf( t *testing.T , user_id uint64 ) ( sessions []*models.Session ) {
