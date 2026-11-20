@@ -11,12 +11,12 @@ storage, one self-contained binary when you ship it.
 ## Quick start
 
 ```bash
-go build ./...
-SECURE_COOKIES=false go run .
+scripts/run.sh
 ```
 
-The first run prints a one-time login link. Open it — that is the entire
-account system; there is no signup form and no passwords. Admins mint further
+The first run writes `config/config.yaml` and `config/secret.key` and prints a
+one-time login link. Open it and press Sign in — that is the entire account
+system; there is no signup form and no passwords. Admins mint further
 links from the Account screen or with `manage reissue-login`.
 
 There are two kinds of link. A **login link** names one person and works once
@@ -31,8 +31,14 @@ submits the join form. That is deliberate: chat apps and mail scanners fetch
 links to build previews, and a link that was spent by being *looked at* would
 be empty before anyone tapped it.
 
-`SECURE_COOKIES=false` matters on plain `http://localhost`: a `Secure` cookie
-is silently dropped over http, so login appears to work and then does nothing.
+Opening a login link is just as harmless: it shows a Sign in button, and only
+pressing it spends the link.
+
+Everything is configured in `config/config.yaml` (every key and its default is
+in `config/config.example.yaml`); nothing reads environment variables.
+`server.secure_cookies: false` is needed on plain `http://localhost`: a
+`Secure` cookie is silently dropped over http, so login appears to work and
+then does nothing.
 
 ## How it works
 
@@ -223,19 +229,21 @@ server/xlsx/             a minimal .xlsx writer, standard library only
 static/js/train.js       the card stack and the swipe interaction
 static/js/swipe.js       gesture recognition, no app logic
 static/js/speech.js      the device's own text-to-speech, behind one button
-language.yaml            every user-facing string in the app
+config/language.yaml     every user-facing string in the app
 ```
 
 Adding a screen means a file in `static/`, a file in `static/js/` with its own
-`init()`, and its strings in `language.yaml`. Adding an endpoint means a file
-in `server/routes/` registered in `routes.go`. Nothing needs a build step —
+`init()`, and its strings in `config/language.yaml`. Adding an endpoint means a file
+in `server/routes/` with an `// @route(...)` declaration, then
+`scripts/api_docs.sh` to rewrite the route table and API docs. Nothing needs a build step —
 the browser runs the files exactly as they sit on disk.
 
 ## Shipping
 
 ```bash
-./dockerRun.sh          # hardened Alpine container; use this for a deployment
-./build.sh              # single-file binaries in dist/, no runtime deps
+docker/run.sh           # hardened Alpine container; use this for a deployment
+scripts/build.sh        # single-file binaries in dist/, no runtime deps
+scripts/login.sh        # a fresh login link for the owner
 ```
 
 Both print the first-run login link on first start — it is shown once and
@@ -243,7 +251,7 @@ cannot be recovered. The binary is also the admin CLI: `./vocab-trainer
 manage list-users`, `manage reissue-login -user-id 1`,
 `manage create-invite -uses 3 -label "group chat"`, `manage paths`.
 
-State lives in one directory (`~/.config/vocab-trainer/`, or `APP_DIR`): the
-bolt database, a generated secret key, and an optional `config.yaml`. Back it
-up as a unit — `app.db` is encrypted at rest and unreadable without
-`secret.key`.
+State lives in one directory (`~/.config/vocab-trainer/`, or `server.app_dir`
+in `config.yaml`): the bolt database, the activity log, and app storage. Back
+it up together with `config/secret.key` — `app.db` is encrypted at rest and
+unreadable without it.

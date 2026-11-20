@@ -1,6 +1,8 @@
 package models
 
 import (
+	errors "errors"
+	sort "sort"
 	strings "strings"
 	time "time"
 
@@ -21,7 +23,38 @@ type Session struct {
 	CSRFToken  string    `json:"csrf_token"`
 	CreatedAt  time.Time `json:"created_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
+	// What the account owner sees on their devices list. All three are
+	// optional: the address and browser are recorded just after the session
+	// is made, and a session from before they existed has none.
+	IP         string     `json:"ip,omitempty"`
+	UserAgent  string     `json:"user_agent,omitempty"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	// Label is what the account's owner calls this device. It sits beside the
+	// browser and system rather than replacing them, so a name cannot hide
+	// what a device says it is.
+	Label string `json:"label,omitempty"`
+	// IssuedBy is the admin who reissued the login link this session came
+	// from, zero when nobody else did (see LoginToken.IssuedBy).
+	IssuedBy uint64 `json:"issued_by,omitempty"`
+	// ID is the record's key, filled in when a session is read. It is not
+	// stored, since the key already says it, and is no use without the secret.
+	ID string `json:"-"`
 }
+
+// sessionTouchInterval bounds how often last-seen is written. Every request
+// loads the session, and bolt has one writer, so an exact time would cost a
+// write per request for a number nobody reads to the second.
+const sessionTouchInterval = 15 * time.Minute
+
+// SessionUserAgentMax is how much of a User-Agent header is kept.
+const SessionUserAgentMax = 256
+
+const sessionLabelMax = 80
+
+// ErrSessionNotFound answers both an unknown session and someone else's, so
+// the difference cannot be used to find out which ids exist.
+var ErrSessionNotFound = errors.New( "session not found" )
+
 
 func splitCredential( raw string ) ( id string , secret string , ok bool ) {
 	parts := strings.SplitN( raw , "." , 2 )
@@ -30,8 +63,12 @@ func splitCredential( raw string ) ( id string , secret string , ok bool ) {
 	return
 }
 
-func CreateSession( store *db.Store , user_id uint64 , ttl time.Duration ) ( credential string , session *Session , err error ) {
-	session_id := encryption.GenerateURLToken( 16 )
+// newSession builds a session without storing it. Its callers --
+// startSignInTx, FinishChallenge, JoinInviteLink -- store it in the
+// same transaction that checks the link and the account are still good, so
+// there is deliberately no CreateSession that writes one on its own.
+func newSession( user_id uint64 , ttl time.Duration ) ( session_id string , credential string , session *Session ) {
+	session_id = encryption.GenerateURLToken( 16 )
 	secret := encryption.GenerateURLToken( 32 )
 	now := time.Now().UTC()
 	session = &Session{
@@ -40,11 +77,6 @@ func CreateSession( store *db.Store , user_id uint64 , ttl time.Duration ) ( cre
 		CSRFToken:  encryption.GenerateURLToken( 24 ),
 		CreatedAt:  now,
 		ExpiresAt:  now.Add( ttl ),
-	}
-	err = store.Put( db.BucketSessions , []byte( session_id ) , session )
-	if err != nil {
-		session = nil
-		return
 	}
 	credential = session_id + "." + secret
 	return
@@ -70,7 +102,158 @@ func LoadSession( store *db.Store , credential string ) ( session *Session , use
 	loaded_user , err := GetUser( store , found.UserID )
 	if err != nil || loaded_user.Disabled() { return }
 
+	found.ID = session_id
 	session , user = found , loaded_user
+	return
+}
+
+// RecordSessionDevice notes where a session was signed in from. The session is
+// made inside the sign-in transaction, which has no request to read this from,
+// so it is added straight after; failing here is ignored, because a sign-in
+// that worked should not fail over what the devices list will show. An update
+// rather than a write, so it cannot bring back a session that has just ended.
+func RecordSessionDevice( store *db.Store , credential string , ip string , user_agent string ) {
+	session_id , _ , ok := splitCredential( credential )
+	if ok == false { return }
+	now := time.Now().UTC()
+	store.UpdateValue( db.BucketSessions , []byte( session_id ) ,
+		func() any { return &Session{} } ,
+		func( item any ) ( mutate_err error ) {
+			session := item.( *Session )
+			session.IP = ip
+			session.UserAgent = user_agent
+			session.LastSeenAt = &now
+			return
+		} )
+}
+
+// sessionExpiry is when a session used now should end: ttl from now, but never
+// later than max_age after it was signed in, and never earlier than it already
+// ends, so shortening the ttl does not cut off a session mid-use.
+func sessionExpiry( session *Session , now time.Time , ttl time.Duration , max_age time.Duration ) ( expires time.Time ) {
+	expires = now.Add( ttl )
+	if limit := session.CreatedAt.Add( max_age ); expires.After( limit ) {
+		expires = limit
+	}
+	if expires.Before( session.ExpiresAt ) {
+		expires = session.ExpiresAt
+	}
+	return
+}
+
+// TouchSession records use at most once per sessionTouchInterval, and moves the
+// session's end out in the same write, so someone using the app every day is
+// not signed out at a date set when they signed in. Without a password that
+// would mean asking an admin for a new link. extended says the end moved, which
+// is the caller's cue to send the cookie again: it has its own expiry.
+//
+// It is called for requests a person made, not from LoadSession: a live stream
+// re-checking its session every few seconds is not the person being there.
+// Failures are ignored for the same reason as touchAPIKey.
+func TouchSession( store *db.Store , session *Session , ttl time.Duration , max_age time.Duration ) ( extended bool ) {
+	now := time.Now().UTC()
+	if session.LastSeenAt != nil && now.Sub( *session.LastSeenAt ) < sessionTouchInterval {
+		return
+	}
+	expires := sessionExpiry( session , now , ttl , max_age )
+	update_err := store.UpdateValue( db.BucketSessions , []byte( session.ID ) ,
+		func() any { return &Session{} } ,
+		func( item any ) ( mutate_err error ) {
+			stored := item.( *Session )
+			stored.LastSeenAt = &now
+			stored.ExpiresAt = expires
+			return
+		} )
+	session.LastSeenAt = &now
+	if update_err != nil { return }
+	extended = expires.After( session.ExpiresAt )
+	session.ExpiresAt = expires
+	return
+}
+
+// ListSessionsForUser is an account's live sessions, newest first.
+func ListSessionsForUser( store *db.Store , user_id uint64 ) ( sessions []*Session , err error ) {
+	sessions = []*Session{}
+	now := time.Now().UTC()
+	err = store.ForEach( db.BucketSessions ,
+		func() any { return &Session{} } ,
+		func( key []byte , item any ) bool {
+			stored := item.( *Session )
+			if stored.UserID == user_id && now.After( stored.ExpiresAt ) == false {
+				stored.ID = string( key )
+				sessions = append( sessions , stored )
+			}
+			return true
+		} )
+	sort.Slice( sessions , func( a int , b int ) ( less bool ) {
+		less = sessions[ a ].CreatedAt.After( sessions[ b ].CreatedAt )
+		return
+	} )
+	return
+}
+
+// ValidSessionLabel is true for a label, or for nothing, which clears it.
+func ValidSessionLabel( label string ) ( result bool ) {
+	result = len( strings.TrimSpace( label ) ) <= sessionLabelMax
+	return
+}
+
+// LabelSession names one of an account's own devices, and an empty label clears
+// the name. ErrSessionNotFound for someone else's, as with RevokeSession. expect,
+// when not nil, is the label the caller believes is stored, as in RenameUser: a
+// *RenameConflictError if it is not.
+func LabelSession( store *db.Store , user_id uint64 , session_id string , label string , expect *string ) ( err error ) {
+	err = store.UpdateValue( db.BucketSessions , []byte( session_id ) ,
+		func() any { return &Session{} } ,
+		func( item any ) ( mutate_err error ) {
+			session := item.( *Session )
+			if session.UserID != user_id {
+				mutate_err = ErrSessionNotFound
+				return
+			}
+			if expect != nil && session.Label != strings.TrimSpace( *expect ) {
+				mutate_err = &RenameConflictError{ Current: session.Label }
+				return
+			}
+			session.Label = strings.TrimSpace( label )
+			return
+		} )
+	if errors.Is( err , db.ErrNotFound ) { err = ErrSessionNotFound }
+	return
+}
+
+// RevokeSession ends one of an account's own sessions. The ownership check and
+// the delete share a transaction, so what was checked is what goes.
+func RevokeSession( store *db.Store , user_id uint64 , session_id string ) ( err error ) {
+	err = RevokeSessionAs( store , user_id , user_id , session_id )
+	return
+}
+
+// RevokeSessionAs is RevokeSession for an admin ending someone else's
+// session, held to mayActOnTx: only the owner signs another admin out.
+func RevokeSessionAs( store *db.Store , user_id uint64 , actor_id uint64 , session_id string ) ( err error ) {
+	err = store.Write( func( tx *db.Tx ) ( tx_err error ) {
+		if tx_err = mayActOnIDTx( tx , actor_id , user_id ); tx_err != nil { return }
+		session := &Session{}
+		tx_err = tx.Get( db.BucketSessions , []byte( session_id ) , session )
+		if errors.Is( tx_err , db.ErrNotFound ) || ( tx_err == nil && session.UserID != user_id ) {
+			tx_err = ErrSessionNotFound
+			return
+		}
+		if tx_err != nil { return }
+		tx_err = tx.Delete( db.BucketSessions , []byte( session_id ) )
+		return
+	} )
+	return
+}
+
+// RevokeOtherSessions ends every session an account holds but keep_session_id.
+func RevokeOtherSessions( store *db.Store , user_id uint64 , keep_session_id string ) ( removed int , err error ) {
+	removed , err = store.DeleteWhere( db.BucketSessions ,
+		func() any { return &Session{} } ,
+		func( key []byte , item any ) bool {
+			return item.( *Session ).UserID == user_id && string( key ) != keep_session_id
+		} )
 	return
 }
 
@@ -81,16 +264,28 @@ func DestroySession( store *db.Store , credential string ) ( err error ) {
 	return
 }
 
-// DestroyAllSessionsForUser is what makes disabling an account take effect
-// immediately instead of whenever the cookie happens to expire. It runs as a
-// single transaction on purpose: a scan that collects keys and then deletes
-// them one at a time would let a session created mid-sweep survive the
-// revocation it was meant to be caught by.
-func DestroyAllSessionsForUser( store *db.Store , user_id uint64 ) ( err error ) {
-	_ , err = store.DeleteWhere( db.BucketSessions ,
+// destroySessionsForUser deletes every session an account holds, inside the
+// caller's transaction. It is not exported because deleting sessions is only
+// ever half of a revocation: SetUserDisabled and RevokeAllCredentials run it
+// together with the account change in one transaction, so a login link
+// redeemed at the same moment either lands before (and its session is
+// deleted here) or after (and sees the change).
+func destroySessionsForUser( tx *db.Tx , user_id uint64 ) ( removed int , err error ) {
+	removed , err = tx.DeleteWhere( db.BucketSessions ,
 		func() any { return &Session{} } ,
 		func( key []byte , item any ) bool {
 			return item.( *Session ).UserID == user_id
+		} )
+	return
+}
+
+// destroyOtherSessionsForUser is destroySessionsForUser keeping one session:
+// the one the account is using to make the change.
+func destroyOtherSessionsForUser( tx *db.Tx , user_id uint64 , keep_session_id string ) ( removed int , err error ) {
+	removed , err = tx.DeleteWhere( db.BucketSessions ,
+		func() any { return &Session{} } ,
+		func( key []byte , item any ) bool {
+			return item.( *Session ).UserID == user_id && string( key ) != keep_session_id
 		} )
 	return
 }

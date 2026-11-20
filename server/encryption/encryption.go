@@ -19,17 +19,23 @@
 package encryption
 
 import (
+	base32 "encoding/base32"
 	base64 "encoding/base64"
 	binary "encoding/binary"
 	hex "encoding/hex"
 	errors "errors"
+	fmt "fmt"
+	strings "strings"
 
+	hmac "crypto/hmac"
 	random "crypto/rand"
+	sha1 "crypto/sha1"
 	sha256 "crypto/sha256"
 	subtle "crypto/subtle"
 
 	kyberk2so "github.com/symbolicsoft/kyber-k2so"
 	bcrypt "golang.org/x/crypto/bcrypt"
+	blake2b "golang.org/x/crypto/blake2b"
 	chacha "golang.org/x/crypto/chacha20poly1305"
 	curve25519 "golang.org/x/crypto/curve25519"
 	secretbox "golang.org/x/crypto/nacl/secretbox"
@@ -89,6 +95,14 @@ func Sha256Hex( value string ) ( result string ) {
 	return
 }
 
+// HMACSHA256Hex signs a message, as lowercase hex.
+func HMACSHA256Hex( key string , message string ) ( result string ) {
+	mac := hmac.New( sha256.New , []byte( key ) )
+	mac.Write( []byte( message ) )
+	result = hex.EncodeToString( mac.Sum( nil ) )
+	return
+}
+
 // ConstantTimeEqual compares two hex/ASCII digests without leaking, through
 // how long the comparison takes, how many leading characters matched. Go's ==
 // on strings returns early at the first difference, which is exactly the
@@ -99,12 +113,13 @@ func ConstantTimeEqual( a string , b string ) ( result bool ) {
 }
 
 // ---------------------------------------------------------------------------
-// bcrypt -- for one-time login secrets
+// bcrypt -- for login-link secrets
 // ---------------------------------------------------------------------------
 
-// BcryptHash is used on login-link secrets, which are redeemed at most once.
-// The cost is paid on a single redemption rather than on every request, so
-// bcrypt's slowness buys real protection here without hurting throughput.
+// BcryptHash is used on login-link secrets. The cost is paid once per
+// sign-in through a link (a link can allow several) rather than on every
+// request, and sign-ins have their own rate budget, so bcrypt's slowness buys
+// real protection here without hurting throughput.
 func BcryptHash( plain_text string ) ( result string , err error ) {
 	hashed , err := bcrypt.GenerateFromPassword( []byte( plain_text ) , bcrypt.DefaultCost )
 	if err != nil { return }
@@ -118,11 +133,115 @@ func BcryptCompare( hashed string , plain_text string ) ( ok bool ) {
 }
 
 // ---------------------------------------------------------------------------
+// TOTP (RFC 6238) -- the codes an authenticator app shows
+//
+// SHA-1, six digits and thirty seconds are not choices: they are what every
+// authenticator app does, whatever a URI asks for. SHA-1's collision weakness
+// does not touch HMAC-SHA1 here.
+// ---------------------------------------------------------------------------
+
+const (
+	TOTPPeriodSeconds = 30
+	TOTPDigits        = 6
+	// TOTPWindow is one step either side, for a phone whose clock has drifted.
+	TOTPWindow = 1
+)
+
+// TOTPNewSecret is 20 random bytes as base32, the form an authenticator app
+// expects. 20 bytes encode to exactly 32 characters, so there is no padding.
+func TOTPNewSecret() ( secret string ) {
+	secret = base32.StdEncoding.EncodeToString( GenerateRandomBytes( 20 ) )
+	return
+}
+
+// TOTPCode is the code for one 30-second step.
+func TOTPCode( secret string , step uint64 ) ( code string , err error ) {
+	key , err := base32.StdEncoding.DecodeString( secret )
+	if err != nil { return }
+	counter := make( []byte , 8 )
+	binary.BigEndian.PutUint64( counter , step )
+	mac := hmac.New( sha1.New , key )
+	mac.Write( counter )
+	digest := mac.Sum( nil )
+	offset := digest[ len( digest )-1 ] & 0x0F
+	value := binary.BigEndian.Uint32( digest[ offset:offset+4 ] ) & 0x7FFFFFFF
+	code = fmt.Sprintf( "%06d" , value%1000000 )
+	return
+}
+
+// TOTPMatch finds the step code is valid for. after_step is the last step this
+// account used: anything at or before it is refused, which is what makes a
+// code single-use rather than good for its whole window.
+func TOTPMatch( secret string , code string , at_seconds int64 , after_step uint64 ) ( step uint64 , ok bool , err error ) {
+	current := uint64( at_seconds / TOTPPeriodSeconds )
+	for candidate := current - TOTPWindow; candidate <= current+TOTPWindow; candidate++ {
+		if candidate <= after_step { continue }
+		expected , code_err := TOTPCode( secret , candidate )
+		if code_err != nil {
+			err = code_err
+			return
+		}
+		if ConstantTimeEqual( expected , code ) {
+			step , ok = candidate , true
+			return
+		}
+	}
+	return
+}
+
+// RecoveryCode is 80 random bits as XXXX-XXXX-XXXX-XXXX. Long enough that the
+// sha256 stored for it has nothing to brute force, like the other random
+// secrets here.
+func RecoveryCode() ( code string ) {
+	text := base32.StdEncoding.EncodeToString( GenerateRandomBytes( 10 ) )
+	parts := []string{}
+	for index := 0; index < len( text ); index += 4 {
+		parts = append( parts , text[ index:index+4 ] )
+	}
+	code = strings.Join( parts , "-" )
+	return
+}
+
+// ---------------------------------------------------------------------------
 // keys
 // ---------------------------------------------------------------------------
 
 func GenerateKeyHex() ( key_hex string ) {
 	key_hex = hex.EncodeToString( GenerateRandomBytes( 32 ) )
+	return
+}
+
+// KeyFingerprint names a key without revealing it: the start of a hash of the
+// key, which a backup's manifest can carry so a restore can say which key it
+// needs. The prefix keeps this hash from matching any other use of the key.
+func KeyFingerprint( key_hex string ) ( result string ) {
+	result = Sha256Hex( "key-fingerprint-v1:" + key_hex )[ :16 ]
+	return
+}
+
+// The purposes secret.key is put to. Each seals with its own key, derived
+// from secret.key by SubKey, so a value sealed for one never opens as another:
+// a session cookie is not a log line, and a log line is not a database record.
+const (
+	PurposeDB       = "db"       // database records (server/db)
+	PurposeLogs     = "logs"     // activity log lines (server/logs)
+	PurposeCookie   = "cookie"   // the session cookie (server/security)
+	PurposeTOTP     = "totp"     // two-factor secrets, inside the user record
+	PurposeFiles    = "files"    // each uploaded file's own key, inside its record
+	PurposeWebhooks = "webhooks" // each webhook's signing secret, inside its record
+)
+
+// SubKey is the key one purpose seals with: keyed BLAKE2b-256 of a label,
+// with secret.key as the key. It is one-way, so a subkey that leaks gives away
+// neither secret.key nor any other purpose's key. A key that is not 32 bytes
+// of hex gives "", which every function here refuses with ErrBadKey.
+func SubKey( key_hex string , purpose string ) ( result string ) {
+	key , err := decodeKey( key_hex )
+	if err != nil { return }
+	mac , err := blake2b.New256( key[ : ] )
+	if err != nil { return }
+	mac.Write( []byte( "webserver subkey v1: " + purpose ) )
+	result = hex.EncodeToString( mac.Sum( nil ) )
 	return
 }
 
@@ -183,6 +302,21 @@ func SecretBoxDecrypt( key_hex string , encrypted string ) ( result string , err
 // nonce is prepended to the cipher text; the Poly1305 tag means a modified
 // value fails to open rather than decrypting to garbage.
 func ChaChaEncryptBytes( key_hex string , plain_text []byte ) ( result []byte , err error ) {
+	result , err = ChaChaEncryptBound( key_hex , plain_text , nil )
+	return
+}
+
+func ChaChaDecryptBytes( key_hex string , encrypted []byte ) ( result []byte , err error ) {
+	result , err = ChaChaDecryptBound( key_hex , encrypted , nil )
+	return
+}
+
+// ChaChaEncryptBound seals plain_text to bound as well as to the key: it opens
+// only with the same bound, which is itself not stored. A file's chunks use
+// this, bound to their place in the file, so that one moved, swapped with
+// another file's or dropped from the end fails to open instead of decrypting
+// to the wrong file.
+func ChaChaEncryptBound( key_hex string , plain_text []byte , bound []byte ) ( result []byte , err error ) {
 	key , err := decodeKey( key_hex )
 	if err != nil { return }
 	aead , aead_err := chacha.NewX( key[ : ] )
@@ -191,11 +325,11 @@ func ChaChaEncryptBytes( key_hex string , plain_text []byte ) ( result []byte , 
 		return
 	}
 	nonce := GenerateRandomBytes( aead.NonceSize() )
-	result = aead.Seal( nonce , nonce , plain_text , nil )
+	result = aead.Seal( nonce , nonce , plain_text , bound )
 	return
 }
 
-func ChaChaDecryptBytes( key_hex string , encrypted []byte ) ( result []byte , err error ) {
+func ChaChaDecryptBound( key_hex string , encrypted []byte , bound []byte ) ( result []byte , err error ) {
 	key , err := decodeKey( key_hex )
 	if err != nil { return }
 	aead , aead_err := chacha.NewX( key[ : ] )
@@ -208,7 +342,7 @@ func ChaChaDecryptBytes( key_hex string , encrypted []byte ) ( result []byte , e
 		return
 	}
 	nonce := encrypted[ :aead.NonceSize() ]
-	opened , open_err := aead.Open( nil , nonce , encrypted[ aead.NonceSize(): ] , nil )
+	opened , open_err := aead.Open( nil , nonce , encrypted[ aead.NonceSize(): ] , bound )
 	if open_err != nil {
 		err = ErrCipherText
 		return

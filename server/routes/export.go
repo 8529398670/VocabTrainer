@@ -111,13 +111,20 @@ var exportSheets = []struct {
 	{ key: "export.sheet_skipped" , status: models.StatusSkipped },
 }
 
-// GetWordsExport builds the workbook and sends it as a download.
-func ( handlers *Handlers ) GetWordsExport( c fiber.Ctx ) ( err error ) {
+// getWordsExport builds the workbook and sends it as a download. A GET rather
+// than a POST because it changes nothing and because a link is the only
+// download that behaves itself on a phone.
+//
+// @route("GET /api/export/words.xlsx", summary="Your word lists as a spreadsheet",
+//     tag="Training", errors=(404,), reply_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+//     description="One sheet per list. 404 when language.yaml switches off every sheet or every column.",
+// )
+func ( handlers *Handlers ) getWordsExport( c fiber.Ctx , in *localDay ) ( err error ) {
 	user := security.UserFrom( c )
 	now := time.Now().UTC()
 
 	cards , err := models.ListCards( handlers.Store , user.ID )
-	if err != nil { return serverError( c ) }
+	if err != nil { return }
 
 	// One pass, three buckets. ListCardsByStatus would re-scan the user's
 	// whole range for each list, and the whole point of this endpoint is that
@@ -151,16 +158,17 @@ func ( handlers *Handlers ) GetWordsExport( c fiber.Ctx ) ( err error ) {
 	// that looks like from here. Saying so is better than shipping an empty
 	// file that no reader will open.
 	if len( sheets ) == 0 || len( columns ) == 0 {
-		return notFound( c , "the export has no sheets or no columns configured" )
+		err = refuse( fiber.StatusNotFound , "the export has no sheets or no columns configured" )
+		return
 	}
 
 	buffer := &bytes.Buffer{}
-	if err = xlsx.Write( buffer , sheets ); err != nil { return serverError( c ) }
+	if err = xlsx.Write( buffer , sheets ); err != nil { return }
 
 	c.Set( fiber.HeaderContentType , spreadsheetMIME )
 	c.Set( fiber.HeaderCacheControl , "no-store" )
 	c.Set( fiber.HeaderContentDisposition ,
-		`attachment; filename="`+handlers.exportFilename( localDate( c.Query( "date" ) , now ) )+`"` )
+		`attachment; filename="`+handlers.exportFilename( localDate( in.Date , now ) )+`"` )
 	err = c.Send( buffer.Bytes() )
 	return
 }

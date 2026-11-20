@@ -39,14 +39,14 @@ func TestInviteAdmitsExactlyItsSeatCount( t *testing.T ) {
 	if err != nil { t.Fatalf( "could not issue invite: %v" , err ) }
 
 	for seat := 1; seat <= 3; seat += 1 {
-		user , claim_err := ClaimInvite( store , credential , "Joiner" )
+		user , _ , claim_err := ClaimInvite( store , credential , "Joiner" , testSignInRules )
 		if claim_err != nil { t.Fatalf( "seat %d was refused: %v" , seat , claim_err ) }
 		if user == nil { t.Fatalf( "seat %d returned no user" , seat ) }
 		if user.Role != RoleUser { t.Errorf( "seat %d got role %q, wanted %q" , seat , user.Role , RoleUser ) }
 	}
 
 	// The fourth is the whole point of the feature.
-	if _ , claim_err := ClaimInvite( store , credential , "One Too Many" ); errors.Is( claim_err , ErrInviteFull ) == false {
+	if _ , _ , claim_err := ClaimInvite( store , credential , "One Too Many" , testSignInRules ); errors.Is( claim_err , ErrInviteFull ) == false {
 		t.Errorf( "fourth claim returned %v, wanted ErrInviteFull" , claim_err )
 	}
 }
@@ -70,7 +70,7 @@ func TestConcurrentClaimsCannotOverspendTheLastSeat( t *testing.T ) {
 		go func() {
 			defer wait.Done()
 			<-start
-			user , claim_err := ClaimInvite( store , credential , "Racer" )
+			user , _ , claim_err := ClaimInvite( store , credential , "Racer" , testSignInRules )
 			if claim_err != nil { return }
 			mutex.Lock()
 			granted = append( granted , user.ID )
@@ -131,7 +131,7 @@ func TestWrongSecretRevealsNothing( t *testing.T ) {
 		if errors.Is( inspect_err , ErrInviteInvalid ) == false {
 			t.Errorf( "credential %q returned %v, wanted ErrInviteInvalid" , credential , inspect_err )
 		}
-		if _ , claim_err := ClaimInvite( store , credential , "Nobody" ); claim_err == nil {
+		if _ , _ , claim_err := ClaimInvite( store , credential , "Nobody" , testSignInRules ); claim_err == nil {
 			t.Errorf( "credential %q was claimable" , credential )
 		}
 	}
@@ -142,14 +142,14 @@ func TestRevokedInviteStopsWorkingAndSaysSo( t *testing.T ) {
 	invite_id , credential , err := IssueInvite( store , 1 , RoleUser , "" , 3 , time.Hour )
 	if err != nil { t.Fatalf( "could not issue invite: %v" , err ) }
 
-	if _ , claim_err := ClaimInvite( store , credential , "First In" ); claim_err != nil {
+	if _ , _ , claim_err := ClaimInvite( store , credential , "First In" , testSignInRules ); claim_err != nil {
 		t.Fatalf( "first claim failed: %v" , claim_err )
 	}
 	if revoke_err := RevokeInvite( store , invite_id ); revoke_err != nil {
 		t.Fatalf( "could not revoke: %v" , revoke_err )
 	}
 
-	if _ , claim_err := ClaimInvite( store , credential , "Too Late" ); errors.Is( claim_err , ErrInviteRevoked ) == false {
+	if _ , _ , claim_err := ClaimInvite( store , credential , "Too Late" , testSignInRules ); errors.Is( claim_err , ErrInviteRevoked ) == false {
 		t.Errorf( "claim after revoke returned %v, wanted ErrInviteRevoked" , claim_err )
 	}
 
@@ -181,7 +181,7 @@ func TestExpiredInviteIsRefusedButStillExplainsItself( t *testing.T ) {
 	if errors.Is( inspect_err , ErrInviteExpired ) == false {
 		t.Errorf( "inspect returned %v, wanted ErrInviteExpired" , inspect_err )
 	}
-	if _ , claim_err := ClaimInvite( store , credential , "Late" ); errors.Is( claim_err , ErrInviteExpired ) == false {
+	if _ , _ , claim_err := ClaimInvite( store , credential , "Late" , testSignInRules ); errors.Is( claim_err , ErrInviteExpired ) == false {
 		t.Errorf( "claim returned %v, wanted ErrInviteExpired" , claim_err )
 	}
 
@@ -201,7 +201,7 @@ func TestFullInviteIsKeptUntilItExpires( t *testing.T ) {
 	store := newInviteStore( t )
 	_ , credential , err := IssueInvite( store , 1 , RoleUser , "" , 1 , time.Hour )
 	if err != nil { t.Fatalf( "could not issue invite: %v" , err ) }
-	if _ , claim_err := ClaimInvite( store , credential , "Only One" ); claim_err != nil {
+	if _ , _ , claim_err := ClaimInvite( store , credential , "Only One" , testSignInRules ); claim_err != nil {
 		t.Fatalf( "claim failed: %v" , claim_err )
 	}
 
@@ -223,7 +223,7 @@ func TestClaimedAccountTakesTheInvitesRole( t *testing.T ) {
 	_ , credential , err := IssueInvite( store , 1 , RoleAdmin , "" , 1 , time.Hour )
 	if err != nil { t.Fatalf( "could not issue invite: %v" , err ) }
 
-	user , claim_err := ClaimInvite( store , credential , "  Padded Name  " )
+	user , _ , claim_err := ClaimInvite( store , credential , "  Padded Name  " , testSignInRules )
 	if claim_err != nil { t.Fatalf( "claim failed: %v" , claim_err ) }
 	if user.Role != RoleAdmin { t.Errorf( "role = %q, wanted %q" , user.Role , RoleAdmin ) }
 	if user.DisplayName != "Padded Name" { t.Errorf( "display name = %q, wanted it trimmed" , user.DisplayName ) }
@@ -244,3 +244,6 @@ func TestInviteSeatBoundsAreEnforcedAtTheEdge( t *testing.T ) {
 		}
 	}
 }
+
+// testSignInRules is what a claim's session is made with in these tests.
+var testSignInRules = SignInRules{ SessionTTL: time.Hour }

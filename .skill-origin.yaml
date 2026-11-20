@@ -1,0 +1,11 @@
+# Written by the skill that scaffolded this app; `webserver-upgrade` reads and
+# updates it. Commit it: it is how an update knows where this app started.
+skill: go-webserver
+commit: 60335af96c7e019e0cda33ae52e8b68291d94531
+project_name: "VocabTrainer"
+slug: vocabtrainer
+module_path: vocabtrainer
+port: None
+features: []
+pruned: [api_keys, mcp, invite_links, metrics, webhooks, files, passwords, two_factor, backups, appearance, shortcuts]
+skipped: [account-cards, bootstrap-grid, busy-buttons, desktop-layout, dismiss-boxes, editable-themes, ip-names, keys-manage-accounts, logs-date-centred, panel-buttons, row-menu, settings-tools, show-more, sort-columns, steady-scroll, theme-builtins-seen, theme-buttons, theme-layers, theme-mode-colors, theme-top-bar]

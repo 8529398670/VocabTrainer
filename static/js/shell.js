@@ -84,6 +84,14 @@ const Shell = {
       identity = { authenticated: false };
     }
 
+    // A login link opens this page at /login/<credential>. Opening it signs
+    // nobody in: link previews and mail scanners fetch links too, and would
+    // spend it. The person confirms, and only that POST uses the link.
+    if ( window.location.pathname.indexOf( "/login/" ) === 0 ) {
+      this.showLoginConfirm( identity );
+      return;
+    }
+
     const signedIn = !!( identity && identity.authenticated );
     if ( signedIn ) {
       this.user = identity;
@@ -114,6 +122,31 @@ const Shell = {
     } catch ( initError ) {
       this.showError( initError );
     }
+  },
+
+  // showLoginConfirm is the page a login link opens: one button that spends
+  // the link. Someone already signed in is told that it switches accounts.
+  showLoginConfirm( identity ) {
+    const credential = window.location.pathname.slice( "/login/".length ).replace( /\/+$/ , "" );
+    I18n.apply();
+    Dom.show( Dom.get( "main" ) , true );
+    Dom.show( Dom.get( "tabbar" ) , false );
+    Dom.show( Dom.get( "signed-out" ) , false );
+    Dom.show( Dom.get( "signed-in" ) , false );
+    Dom.show( Dom.get( "login-confirm" ) , true );
+    Dom.show( Dom.get( "login-switch" ) , !!( identity && identity.authenticated ) );
+    const button = Dom.get( "login-confirm-button" );
+    button.addEventListener( "click" , async function () {
+      button.disabled = true;
+      try {
+        await Api.redeemLogin( credential );
+        window.location.replace( "/" );
+      } catch ( error ) {
+        // Every bad link gets the same answer from the server, on purpose;
+        // the signed-out page says what to do about it.
+        window.location.replace( error.status === 400 ? "/?login=invalid" : "/" );
+      }
+    } );
   },
 
   // Settings are needed by more than one screen, so they are fetched once and

@@ -2,14 +2,23 @@
 // and whether it is allowed to change anything. Route handlers read the
 // answer; they never re-derive it. One implementation means one place to get
 // right, and one place to look when auditing.
+//
+// There are two ways to prove who you are, and they meet here rather than
+// anywhere downstream: a session cookie (a browser) or an API key in an
+// Authorization header (a script, a cron job, another service). Everything
+// past this package sees one Actor and one effective role, so a route does not
+// know or care which door the request came through.
 package security
 
 import (
+	time "time"
+
 	fiber "github.com/gofiber/fiber/v3"
 
 	config "vocabtrainer/server/config"
 	db "vocabtrainer/server/db"
 	encryption "vocabtrainer/server/encryption"
+	logs "vocabtrainer/server/logs"
 	models "vocabtrainer/server/models"
 )
 
@@ -17,18 +26,62 @@ import (
 // stashed on the request by accident.
 type contextKey string
 
+const keyActor contextKey = "current_actor"
+
+// Auth method names, as reported by /api/me. Worth exposing so a client can
+// tell a browser session from a key without guessing.
 const (
-	keyUser    contextKey = "current_user"
-	keySession contextKey = "current_session"
+	MethodSession = "session"
 )
 
-type Guard struct {
-	Store  *db.Store
-	Config *config.Config
+// Actor is who a request belongs to, plus how they proved it.
+//
+// Role is the *effective* role, not the account's: a user-scoped API key held
+// by an admin authenticates as a user. Every permission check reads this
+// field, so the narrowing cannot be forgotten at a call site.
+type Actor struct {
+	User    *models.User
+	Session *models.Session
+	Role    string
 }
 
-func New( store *db.Store , cfg *config.Config ) ( guard *Guard ) {
-	guard = &Guard{ Store: store , Config: cfg }
+func ( actor *Actor ) IsAdmin() ( result bool ) {
+	result = actor.Role == models.RoleAdmin
+	return
+}
+
+// ViaAPIKey distinguishes the two doors. It decides the CSRF question below,
+// and it is what an endpoint reads if it genuinely must be browser-only.
+func ( actor *Actor ) ViaAPIKey() ( result bool ) {
+	return
+}
+
+// KeyID is the id of the API key this request came with, or "" for a browser
+// session.
+func ( actor *Actor ) KeyID() ( result string ) {
+	return
+}
+
+func ( actor *Actor ) Method() ( result string ) {
+	result = MethodSession
+	return
+}
+
+type Guard struct {
+	Store *db.Store
+	// Settings is the running configuration. Cookie lifetime and the
+	// Secure flag, and whether API keys are believed, can change while the
+	// server runs, so they are read from it per request.
+	Settings *config.Holder
+}
+
+func New( store *db.Store , settings *config.Holder ) ( guard *Guard ) {
+	guard = &Guard{ Store: store , Settings: settings }
+	return
+}
+
+func ( guard *Guard ) cfg() ( cfg *config.Config ) {
+	cfg = guard.Settings.Get()
 	return
 }
 
@@ -38,69 +91,100 @@ func New( store *db.Store , cfg *config.Config ) ( guard *Guard ) {
 // is opaque to anyone reading it out of a browser profile or a proxy log, and
 // that a tampered cookie fails to decrypt instead of reaching the lookup.
 func ( guard *Guard ) SetSessionCookie( c fiber.Ctx , credential string ) ( err error ) {
-	sealed , err := encryption.ChaChaEncryptString( guard.Config.SecretKey , credential )
+	sealed , err := encryption.ChaChaEncryptString( encryption.SubKey( guard.cfg().SecretKey , encryption.PurposeCookie ) , credential )
 	if err != nil { return }
+	guard.writeSessionCookie( c , sealed , guard.cfg().SessionTTL )
+	return
+}
+
+// writeSessionCookie is the one place the cookie's attributes are spelled, so
+// the copy sent when a session extends cannot drift from the one sent at
+// sign-in. A later cookie of the same name on this response replaces it, so
+// logging out or switching account on a request that extended still wins.
+func ( guard *Guard ) writeSessionCookie( c fiber.Ctx , sealed string , lifetime time.Duration ) {
 	c.Cookie( &fiber.Cookie{
-		Name:     guard.Config.CookieName,
+		Name:     guard.cfg().SessionCookieName(),
 		Value:    sealed,
 		Path:     "/",
-		MaxAge:   int( guard.Config.SessionTTL.Seconds() ),
-		Secure:   guard.Config.SecureCookies,
+		MaxAge:   int( lifetime.Seconds() ),
+		Secure:   guard.cfg().SecureCookies,
 		HTTPOnly: true,
 		SameSite: "Strict",
 	} )
-	return
 }
 
 func ( guard *Guard ) ClearSessionCookie( c fiber.Ctx ) {
 	// Overwrite before clearing: some browsers hold on to a cookie whose
 	// attributes do not match exactly, and an empty value is harmless either way.
 	c.Cookie( &fiber.Cookie{
-		Name:     guard.Config.CookieName,
+		Name:     guard.cfg().SessionCookieName(),
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
-		Secure:   guard.Config.SecureCookies,
+		Secure:   guard.cfg().SecureCookies,
 		HTTPOnly: true,
 		SameSite: "Strict",
 	} )
-	c.ClearCookie( guard.Config.CookieName )
+	c.ClearCookie( guard.cfg().SessionCookieName() )
+	// A cookie from before the __Host- prefix goes too.
+	if guard.cfg().SecureCookies { c.ClearCookie( guard.cfg().CookieName ) }
 }
 
 // DecryptCookie turns the stored cookie back into a session credential.
 // Exposed because logging out has to destroy the server-side record, not just
 // drop the cookie -- otherwise a copy of the cookie taken earlier still works.
 func ( guard *Guard ) DecryptCookie( raw string ) ( credential string , err error ) {
-	credential , err = encryption.ChaChaDecryptBase64String( guard.Config.SecretKey , raw )
+	credential , err = encryption.ChaChaDecryptBase64String( encryption.SubKey( guard.cfg().SecretKey , encryption.PurposeCookie ) , raw )
 	return
 }
 
-// LoadUser runs on every request. It resolves the cookie at most once and
+// LoadUser runs on every request. It resolves the caller at most once and
 // stashes the result, so a handler and a middleware asking "who is this" do
 // not cost two database reads. It never rejects anything -- that is
 // RequireLogin's job -- because plenty of routes are fine for anonymous
 // visitors.
+//
+// An Authorization: Bearer header decides it: the request is that key or no
+// one, and the cookie is not read. Otherwise the cookie. The CSRF rule below
+// stays sound: a header is never ambient -- a page on another site cannot add
+// one without a CORS preflight this server does not answer -- and a request
+// that skips the token check by carrying a key needed that key to begin with.
 func ( guard *Guard ) LoadUser( c fiber.Ctx ) ( err error ) {
-	raw := c.Cookies( guard.Config.CookieName )
-	if raw != "" {
-		credential , decrypt_err := encryption.ChaChaDecryptBase64String( guard.Config.SecretKey , raw )
-		if decrypt_err == nil {
-			session , user := models.LoadSession( guard.Store , credential )
-			if user != nil {
-				c.Locals( keyUser , user )
-				c.Locals( keySession , session )
-			}
-		}
+	var actor *Actor
+	actor = guard.resolveSession( c )
+	if actor != nil {
+		c.Locals( keyActor , actor )
 	}
 	err = c.Next()
 	return
 }
 
-// RequireLogin and RequireAdmin are middleware rather than helpers called at
-// the top of each handler, so a new protected route is protected by where it
-// is registered -- forgetting the check is not something you can do silently.
+func ( guard *Guard ) resolveSession( c fiber.Ctx ) ( actor *Actor ) {
+	raw := c.Cookies( guard.cfg().SessionCookieName() )
+	if raw == "" { return }
+
+	credential , decrypt_err := encryption.ChaChaDecryptBase64String( encryption.SubKey( guard.cfg().SecretKey , encryption.PurposeCookie ) , raw )
+	if decrypt_err != nil { return }
+
+	session , user := models.LoadSession( guard.Store , credential )
+	if user == nil { return }
+
+	// The browser drops the cookie at its own expiry, so extending only the
+	// record would still sign this person out when that arrived.
+	if models.TouchSession( guard.Store , session , guard.cfg().SessionTTL , guard.cfg().SessionMaxAge ) {
+		guard.writeSessionCookie( c , raw , time.Until( session.ExpiresAt ) )
+	}
+	actor = &Actor{ User: user , Session: session , Role: user.Role }
+	return
+}
+
+
+// RequireLogin, RequireAdmin, RequireSession and RequireAPIKey are middleware rather than
+// helpers called at the top of each handler, so a new protected route is
+// protected by where it is registered -- forgetting the check is not something
+// you can do silently.
 func ( guard *Guard ) RequireLogin( c fiber.Ctx ) ( err error ) {
-	if UserFrom( c ) == nil {
+	if ActorFrom( c ) == nil {
 		err = c.Status( fiber.StatusUnauthorized ).JSON( fiber.Map{ "error": "not authenticated" } )
 		return
 	}
@@ -109,12 +193,12 @@ func ( guard *Guard ) RequireLogin( c fiber.Ctx ) ( err error ) {
 }
 
 func ( guard *Guard ) RequireAdmin( c fiber.Ctx ) ( err error ) {
-	user := UserFrom( c )
-	if user == nil {
+	actor := ActorFrom( c )
+	if actor == nil {
 		err = c.Status( fiber.StatusUnauthorized ).JSON( fiber.Map{ "error": "not authenticated" } )
 		return
 	}
-	if user.IsAdmin() == false {
+	if actor.IsAdmin() == false {
 		err = c.Status( fiber.StatusForbidden ).JSON( fiber.Map{ "error": "forbidden" } )
 		return
 	}
@@ -122,24 +206,123 @@ func ( guard *Guard ) RequireAdmin( c fiber.Ctx ) ( err error ) {
 	return
 }
 
+// RequireSession refuses a request that authenticated with an API key, even a
+// correctly scoped one. It guards what a key must not reach (see routes.go):
+// minting, renaming and revoking API keys, your own password, PIN and
+// two-factor, other people's files, and the owner's screens.
+//
+// Keys themselves stay browser-only: a key that could mint a key would leave
+// a successor behind with nothing to tie it to the one revoked.
+func ( guard *Guard ) RequireSession( c fiber.Ctx ) ( err error ) {
+	actor := ActorFrom( c )
+	if actor == nil {
+		err = c.Status( fiber.StatusUnauthorized ).JSON( fiber.Map{ "error": "not authenticated" } )
+		return
+	}
+	if actor.ViaAPIKey() {
+		err = c.Status( fiber.StatusForbidden ).JSON( fiber.Map{ "error": "this endpoint requires a signed-in session, not an API key" } )
+		return
+	}
+	err = c.Next()
+	return
+}
+
+
+// RequireOwner lets through only the owner, signed in from a browser. It
+// guards the activity log (routes/logs.go), which shows what every account
+// did -- including the other admins, which is exactly why they cannot read
+// it. Everyone else, any API key included, gets the 404 an unknown route
+// gets: the Logs screen is not something to advertise.
+//
+// A session, not a key: the log holds every account's IP addresses and
+// activity, and a key is a credential that lives in files. An app that wants
+// the log readable by a script should add a narrow export, knowingly.
+func ( guard *Guard ) RequireOwner( c fiber.Ctx ) ( err error ) {
+	actor := ActorFrom( c )
+	allowed := actor != nil && actor.ViaAPIKey() == false && actor.IsAdmin()
+	if allowed {
+		owner_id , owner_err := models.OwnerID( guard.Store )
+		allowed = owner_err == nil && owner_id != 0 && actor.User.ID == owner_id
+	}
+	if allowed == false {
+		err = c.Status( fiber.StatusNotFound ).JSON( fiber.Map{ "error": "not_found" } )
+		return
+	}
+	err = c.Next()
+	return
+}
+
+// StillOwner is RequireOwner for a stream, which is only checked by middleware
+// when it connects. credential is the session it connected with. It does not
+// count as activity: an open page re-checking is not the person being there.
+func ( guard *Guard ) StillOwner( credential string ) ( ok bool ) {
+	_ , user := models.LoadSession( guard.Store , credential )
+	if user == nil || user.Role != models.RoleAdmin { return }
+	owner_id , err := models.OwnerID( guard.Store )
+	ok = err == nil && owner_id != 0 && user.ID == owner_id
+	return
+}
+
+// LogActor is who an activity-log entry belongs to: the account, the role it
+// acted with, and which door it came through (a key by its public id only).
+func LogActor( actor *Actor ) ( result *logs.Actor ) {
+	if actor == nil || actor.User == nil {
+		result = logs.Anonymous()
+		return
+	}
+	result = &logs.Actor{
+		UserID: actor.User.ID,
+		Name:   actor.User.DisplayName,
+		Role:   actor.Role,
+		Method: actor.Method(),
+	}
+	return
+}
+
+func ActorFrom( c fiber.Ctx ) ( actor *Actor ) {
+	actor , _ = c.Locals( keyActor ).( *Actor )
+	return
+}
+
+// UserFrom, SessionFrom, and APIKeyFrom are the narrow reads a handler
+// usually wants. UserFrom is the account; ActorFrom is the account plus how
+// it authenticated and what it may do, which is what a permission decision
+// needs.
 func UserFrom( c fiber.Ctx ) ( user *models.User ) {
-	user , _ = c.Locals( keyUser ).( *models.User )
+	if actor := ActorFrom( c ); actor != nil {
+		user = actor.User
+	}
 	return
 }
 
 func SessionFrom( c fiber.Ctx ) ( session *models.Session ) {
-	session , _ = c.Locals( keySession ).( *models.Session )
+	if actor := ActorFrom( c ); actor != nil {
+		session = actor.Session
+	}
 	return
 }
+
 
 // CheckCSRF guards state-changing requests. SameSite=Strict already blocks
 // the common cross-site POST, but it is a browser-side promise: older
 // browsers, odd cross-scheme cases, and non-browser clients do not all honour
 // it. A per-session token echoed back in the JSON body costs nothing and does
 // not depend on the browser behaving.
+//
+// A request authenticated by an API key is exempt, and that is not a hole.
+// CSRF exists because a cookie is *ambient* -- the browser attaches it to a
+// request some other site caused. Nothing attaches an Authorization header on
+// its own; a forged cross-site request from an attacker's page carries no key,
+// so there is nothing to forge with. Requiring a token here would instead mean
+// every script had to fetch one first, for no gain.
 func ( guard *Guard ) CheckCSRF( c fiber.Ctx , submitted string ) ( ok bool ) {
-	session := SessionFrom( c )
-	if session == nil || submitted == "" { return }
-	ok = encryption.ConstantTimeEqual( session.CSRFToken , submitted )
+	actor := ActorFrom( c )
+	if actor == nil { return }
+	if actor.ViaAPIKey() {
+		ok = true
+		return
+	}
+	if actor.Session == nil || submitted == "" { return }
+	ok = encryption.ConstantTimeEqual( actor.Session.CSRFToken , submitted )
 	return
 }

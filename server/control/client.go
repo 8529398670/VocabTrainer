@@ -11,8 +11,15 @@ import (
 	http "net/http"
 	time "time"
 
+	backup "vocabtrainer/server/backup"
 	config "vocabtrainer/server/config"
+	models "vocabtrainer/server/models"
 )
+
+// backupTimeout bounds a backup, which unlike every other call here takes as
+// long as the data is big. A local server that has said nothing for this long
+// is not going to.
+const backupTimeout = 30 * time.Minute
 
 // ErrNoServer means nothing is listening on the control socket, which is the
 // normal state on a fresh install or with the server stopped. Callers treat
@@ -24,6 +31,9 @@ var ErrNoServer = errors.New( "control: no server is listening" )
 // instead -- but net/http still requires one to be present.
 type Client struct {
 	http *http.Client
+	// long is the same connection without the short deadline, for the one
+	// call that takes as long as the data is big.
+	long *http.Client
 	path string
 }
 
@@ -57,6 +67,8 @@ func Dial( cfg *config.Config ) ( client *Client , err error ) {
 			},
 		},
 	}
+
+	candidate.long = &http.Client{ Timeout: backupTimeout , Transport: candidate.http.Transport }
 
 	if _ , health_err := candidate.Health(); health_err != nil {
 		err = ErrNoServer
@@ -92,6 +104,11 @@ type errorBody struct {
 // is turned into the server's own error message, so the CLI reports the same
 // wording the server used rather than a bare status code.
 func ( client *Client ) do( method string , path string , body any , out any ) ( err error ) {
+	err = client.send( client.http , method , path , body , out )
+	return
+}
+
+func ( client *Client ) send( caller *http.Client , method string , path string , body any , out any ) ( err error ) {
 	var payload io.Reader
 	if body != nil {
 		encoded , encode_err := json.Marshal( body )
@@ -108,7 +125,7 @@ func ( client *Client ) do( method string , path string , body any , out any ) (
 		request.Header.Set( "Content-Type" , "application/json" )
 	}
 
-	response , err := client.http.Do( request )
+	response , err := caller.Do( request )
 	if err != nil { return }
 	defer response.Body.Close()
 
@@ -131,6 +148,13 @@ func ( client *Client ) do( method string , path string , body any , out any ) (
 	return
 }
 
+// Backup asks the server to write a backup, and waits for it.
+func ( client *Client ) Backup( options backup.Options ) ( result backup.Result , err error ) {
+	request := BackupRequest{ Out: options.Out , IncludeKey: options.IncludeKey }
+	err = client.send( client.long , http.MethodPost , "/v1/backup" , request , &result )
+	return
+}
+
 func ( client *Client ) Health() ( health HealthResponse , err error ) {
 	err = client.do( http.MethodGet , "/v1/health" , nil , &health )
 	return
@@ -142,14 +166,14 @@ func ( client *Client ) ListUsers() ( users []UserResponse , err error ) {
 	return
 }
 
-func ( client *Client ) CreateUser( display_name string , role string ) ( user UserResponse , err error ) {
+func ( client *Client ) CreateUser( display_name string , role string , link models.LoginLinkRequest ) ( user UserResponse , err error ) {
 	err = client.do( http.MethodPost , "/v1/users" ,
-		CreateUserRequest{ DisplayName: display_name , Role: role } , &user )
+		CreateUserRequest{ DisplayName: display_name , Role: role , LoginLinkRequest: link } , &user )
 	return
 }
 
-func ( client *Client ) ReissueLogin( user_id uint64 ) ( user UserResponse , err error ) {
-	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/users/%d/login-token" , user_id ) , nil , &user )
+func ( client *Client ) ReissueLogin( user_id uint64 , link models.LoginLinkRequest ) ( user UserResponse , err error ) {
+	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/users/%d/login-token" , user_id ) , link , &user )
 	return
 }
 
@@ -173,5 +197,26 @@ func ( client *Client ) CreateInvite( label string , role string , max_uses int 
 
 func ( client *Client ) RevokeInvite( invite_id string ) ( invite InviteResponse , err error ) {
 	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/invites/%s/revoke" , invite_id ) , nil , &invite )
+	return
+}
+
+func ( client *Client ) RevokeAccess( user_id uint64 ) ( revoked models.Revoked , err error ) {
+	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/users/%d/revoke-access" , user_id ) , nil , &revoked )
+	return
+}
+
+
+
+
+
+
+
+func ( client *Client ) DeleteUser( user_id uint64 ) ( removed models.Revoked , err error ) {
+	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/users/%d/delete" , user_id ) , nil , &removed )
+	return
+}
+
+func ( client *Client ) TransferOwner( user_id uint64 ) ( user UserResponse , err error ) {
+	err = client.do( http.MethodPost , "/v1/owner" , TransferOwnerRequest{ UserID: user_id } , &user )
 	return
 }

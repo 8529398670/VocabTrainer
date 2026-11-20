@@ -1,0 +1,248 @@
+# VocabTrainer -- the one configuration file.
+#
+# Everything is configured here: the server, the Docker container, and the
+# portable build. Nothing reads environment variables. Every key is optional;
+# a key you leave out takes the value shown in this file.
+#
+# It holds no secret. The secret key is in secret.key, beside this file: 64
+# hex characters, mode 0600, never committed (.gitignore), never baked into an
+# image (.dockerignore). Back the two up together with the app directory.
+#
+# It can be changed while the server runs -- by hand, or from the owner's
+# Settings screen, which edits only the values it changes and leaves every
+# comment where it is. The server checks this file every two seconds; an
+# edit that does not validate is reported and ignored, and the server keeps
+# running on the last good version. Each key is tagged:
+#
+#   [live]      takes effect within seconds of saving
+#   [restart]   saved now, takes effect when the server restarts
+#   [scripts]   read by docker/run.sh or scripts/build.sh, not the server
+#
+# Where it is read from, first match wins:
+#
+#   ./config/config.yaml               a source checkout; also what every
+#                                      script in scripts/ and docker/ reads
+#   ~/.config/vocab-trainer/config.yaml   a portable binary run anywhere else
+#
+# If neither exists the server writes the second one, and a secret.key beside
+# it, on first run. `vocab-trainer config init` writes both into ./config/
+# the same way, and `vocab-trainer config check` validates whichever is in use.
+#
+# Relative paths resolve against the project directory: the folder that holds
+# config/ (in a checkout, and /app in the container), or the folder holding
+# this file when it is not in a config/ folder (~/.config/vocab-trainer/).
+#
+# An unknown key is an error, not a silently ignored typo.
+
+app:
+  # Shown in the page title and the startup log. [restart]
+  name: "Vocab Trainer"
+
+  # Where this app's source lives, e.g. https://github.com/you/app -- just the
+  # repository, no /tree or /blob path. Links to files in it, such as the API
+  # reference on the API keys card, point there; empty points them at this
+  # server's own copy. scaffold.py fills it from --repo, or from a
+  # github.com/... module path.
+  # [live]
+  repo: ""
+
+  # One line on what this app is for, shown on the About screen. [live]
+  description: ""
+
+  # Adds About to the menu: the description above, the version, the source
+  # repository and the API reference. [live]
+  show_about: false
+
+server:
+  # 127.0.0.1 answers only this machine, which is what a development run and
+  # a server behind a reverse proxy on the same host both want. Use 0.0.0.0
+  # to listen on every interface -- and then put TLS in front, because login
+  # links, cookies, and API keys all cross the wire. Ignored inside the
+  # container, which always listens on 0.0.0.0 (what is reachable from
+  # outside is docker.bind_address). [restart]
+  host: 127.0.0.1
+  # scaffold.py replaces 8080 with a random free port, different per project,
+  # so several projects can run on this machine at once. [restart]
+  port: 36812
+
+  # The address people open this at, e.g. https://app.example.com -- just the
+  # origin, no path. Login, invite and API-key links are printed with it.
+  # Empty means the links use http://host:port above (inside the container,
+  # docker.bind_address:docker.host_port), which is right on this machine
+  # and wrong behind a reverse proxy: the server cannot see what is in front.
+  # [live]
+  public_url: ""
+
+  # Where the database, the control socket and app storage live. Empty means
+  # ~/.config/vocab-trainer/. Ignored inside the container, which always
+  # uses /app/data (mounted from docker.data_dir) and keeps the socket on its
+  # tmpfs. [restart]
+  app_dir: ""
+
+  # Checked on disk first, embedded copy otherwise. Empty language_file means
+  # <app_dir>/language.yaml if it exists, else language.yaml beside this file
+  # (config/language.yaml in a checkout). [restart]
+  static_dir: ./static
+  language_file: ""
+
+  # Encrypt every database value and every activity-log line with the key in
+  # secret.key. Session cookies are always encrypted with it. [restart]
+  encrypt_at_rest: true
+
+  # false ONLY for plain http://localhost. A Secure cookie is silently dropped
+  # over http, so login appears to succeed and then does nothing. Also turns
+  # HSTS on. [live]
+  secure_cookies: true
+  # Named per project: browsers share cookies across every port on a host,
+  # so two local projects both using "session" would log each other out.
+  # Changing it signs everyone out. [restart]
+  cookie_name: vocab-trainer_session
+
+  # The app runs behind Cloudflare Tunnel: cloudflared on the host, the app
+  # in Docker published on docker.bind_address (127.0.0.1), so cloudflared
+  # reaches it from the bridge gateway. Cloudflare sets CF-Connecting-IP to
+  # the visitor's address at its edge, overwriting whatever the visitor sent,
+  # and the header is believed only on connections from an address in
+  # trusted_proxies -- so the logs and the rate limiter see each visitor
+  # rather than everyone as 172.17.0.1. Loopback is listed too, for
+  # cloudflared in front of the bare binary (scripts/run.sh).
+  #
+  # This only holds while nothing but cloudflared can reach the server from
+  # those addresses: keep docker.bind_address on loopback. A different
+  # Docker network has its own gateway (`docker network inspect bridge`);
+  # list it exactly, not a range -- 172.16.0.0/12 trusts every container. A
+  # range wider than /8 (IPv4) or /16 (IPv6) is refused, and trust_proxy
+  # without trusted_proxies is refused. Behind nginx or Caddy instead, use
+  # proxy_header: X-Forwarded-For, which is read right to left skipping
+  # trusted hops. See references/deploy-cloudflare.md in the webserver skill.
+  # [restart]
+  trust_proxy: true
+  trusted_proxies: [172.17.0.1, 127.0.0.1, "::1"]
+  proxy_header: CF-Connecting-IP
+
+  # The largest request body accepted, and how many requests one address may
+  # make per window before getting 429s. Files the page loads (/js, /css,
+  # /vendor, images) do not count: index.html alone pulls in over twenty.
+  body_limit_bytes: 1048576        # 1 MiB [restart]
+  rate_limit_max: 120              # [live]
+  rate_limit_window_seconds: 60    # [live]
+
+  # Signing in and joining through an invite link have their own budget, out
+  # of the same window. Everyone behind one office network shares an address,
+  # and each person joining makes several of these calls, so raise this before
+  # handing an invite link to a large group in one room. [live]
+  rate_limit_signin_max: 60
+
+
+  # Lets `manage` and other processes reach the database through the running
+  # server, over a unix socket in the app directory, or on the tmpfs inside
+  # the container (bolt allows only one process to open the file). Off means `manage` needs the server stopped.
+  # [restart]
+  control_socket: true
+
+
+  # Maintenance mode. none is normal running. read_only keeps the app readable
+  # and refuses every write; full refuses everything. Either way the owner's
+  # browser session still works, signing in still works (scripts/login.sh gets
+  # the owner in), and /api/health, /api/ready and /metrics keep answering.
+  # Everyone else gets a 503 with Retry-After. Background jobs keep running.
+  # [live]
+  maintenance: none
+
+  # One line at the top of every signed-in page: planned downtime, say. Empty
+  # shows nothing. Anyone can dismiss it, and a changed message comes back.
+  # [live]
+  announcement: ""
+
+  # Open pages pick up a change to the frontend without anyone pressing
+  # refresh. auto is on for a build with no version stamped serving static/
+  # from disk (scripts/run.sh while you work on it) and off for everything
+  # else; always and never decide it for every build. (Not on/off: YAML
+  # reads those as true/false.)
+  #
+  # Where it is on, an edited stylesheet is swapped into open pages in place.
+  # Any other change -- a script, the markup, a restart onto a new build --
+  # reloads the page at once on a dev build. On a stamped build it waits
+  # instead: the page reloads at the next move to another screen, or offers
+  # a reload after a minute, and never while a dialog, an upload or unsaved
+  # settings are open. Each visible tab keeps one request waiting on the
+  # server; hidden tabs ask nothing. [restart]
+  live_reload: auto
+
+# How long a sign-in lasts, and a login link stays usable. [live]
+# A sign-in that is in use extends itself: session_ttl_seconds counts from the
+# last time it was used, so only an idle one ends then. session_max_age_seconds
+# is the limit on that, counted from signing in, so a stolen cookie cannot be
+# kept alive forever. Set the two equal for a fixed lifetime.
+# login_token_ttl_seconds is how long a one-time login link lasts when whoever
+# makes it does not pick an expiry; multi_use_login_token_ttl_seconds is the
+# same for a link that works more than once.
+auth:
+  session_ttl_seconds: 1209600     # 14 days
+  session_max_age_seconds: 7776000 # 90 days
+  login_token_ttl_seconds: 1800    # 30 minutes
+  multi_use_login_token_ttl_seconds: 604800 # 7 days
+
+  # How long one of the app's own invite links (Account > Invites, or
+  # `manage create-invite`) stays good. Much longer than a login link on
+  # purpose: a login link is handed over while you are talking to the person,
+  # an invite link is posted somewhere and waits for people to notice it.
+  # [live]
+  invite_ttl_seconds: 604800        # 7 days
+
+
+# The activity log: every request, every sign-in and admin action, and what
+# people do on the page (see static/js/track.js). Only the owner can read it,
+# on the Logs screen. It is written as one file per UTC day under
+# <app_dir>/logs/, each line encrypted when server.encrypt_at_rest is on.
+# Login links, keys, PINs and anything typed are never written. [live]
+logs:
+  enabled: true                    # [restart]
+  retention_days: 30               # days older than this are deleted
+  max_total_mb: 500                # past this the oldest days are recycled, never today
+  max_file_mb: 50                  # a day past this continues in a new part file
+  compress_after_days: 1           # finished days older than this are gzipped; 0 = never
+  static_assets: false             # also log requests for /js, /css, /vendor files
+  ui_clicks: true                  # log every click; screen changes, submits and errors always are
+  echo: true                       # print a one-line summary of each request to stdout
+
+
+# [scripts] Read by docker/run.sh, which applies a change the next time it
+# runs. Edit these on the host: inside the container they are read-only.
+docker:
+  image: vocab-trainer
+  container: vocab-trainer
+
+  # The host side of the published port. 127.0.0.1 keeps it reachable only
+  # from this machine -- put nginx/Caddy/Traefik in front for TLS. The
+  # container side is server.port.
+  bind_address: 127.0.0.1
+  host_port: 36812
+
+  # Host directory mounted at /app/data: the database and app storage. This
+  # file and secret.key are mounted separately (secret.key read-only), so a
+  # backup of data_dir alone does not carry the key.
+  data_dir: ./data
+
+  restart: unless-stopped          # no | always | unless-stopped | on-failure[:N]
+
+  # Blast-radius limits. Raise them deliberately for real load.
+  memory: 256m
+  cpus: "1"
+  pids_limit: 128
+  tmpfs_size: 16m                  # the only writable path besides data_dir
+
+# [scripts] Read by scripts/build.sh.
+build:
+  binary_name: vocab-trainer
+  output_dir: dist
+
+  # `scripts/build.sh <os/arch> ...` overrides this list for one run.
+  targets:
+    - darwin/amd64
+    - darwin/arm64
+    - linux/amd64
+    - linux/arm64
+    - linux/arm
+    - windows/amd64
+    - windows/arm64

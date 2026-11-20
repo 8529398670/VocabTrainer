@@ -5,8 +5,6 @@ import (
 	strings "strings"
 	time "time"
 
-	bolt "go.etcd.io/bbolt"
-
 	db "vocabtrainer/server/db"
 	encryption "vocabtrainer/server/encryption"
 )
@@ -204,16 +202,16 @@ func InspectInvite( store *db.Store , credential string ) ( invite *Invite , err
 	return
 }
 
-// ClaimInvite spends one seat and creates the account that took it, returning
-// the new user. The caller then starts a session for them exactly as it would
-// after redeeming a login token.
+// ClaimInvite spends one seat, creates the account that took it, and starts
+// its session, all in one transaction: the same startSignInTx a login link
+// ends in, so what a session is has one implementation either way.
 //
 // This must only ever be reached from a POST. A GET that claimed a seat would
 // be spent by anything that fetches a URL to see what is behind it -- every
 // chat app's link preview, some mobile browsers' prefetch, a corporate mail
 // scanner -- which for a link posted to a group chat means the seats are gone
 // before a person has clicked. See routes/invite.go.
-func ClaimInvite( store *db.Store , credential string , display_name string ) ( user *User , err error ) {
+func ClaimInvite( store *db.Store , credential string , display_name string , rules SignInRules ) ( user *User , signed *SignIn , err error ) {
 	// Phase one: verify the secret outside any write transaction.
 	//
 	// bcrypt is deliberately slow and bolt allows a single writer at a time,
@@ -236,24 +234,19 @@ func ClaimInvite( store *db.Store , credential string , display_name string ) ( 
 	// guarantee rather than a narrower race. Creating the user in the same
 	// transaction means a failure anywhere rolls back both: no account
 	// without a spent seat, no spent seat without an account.
-	err = store.Update( func( tx *bolt.Tx ) ( tx_err error ) {
-		bucket := tx.Bucket( []byte( db.BucketInvites ) )
-		raw := bucket.Get( []byte( invite_id ) )
-		if raw == nil {
-			tx_err = ErrInviteInvalid
-			return
-		}
-
+	err = store.Write( func( tx *db.Tx ) ( tx_err error ) {
 		invite := &Invite{}
-		if decode_err := store.DecodeValue( raw , invite ); decode_err != nil {
-			tx_err = decode_err
+		if tx_err = tx.Get( db.BucketInvites , []byte( invite_id ) , invite ); tx_err != nil {
+			if errors.Is( tx_err , db.ErrNotFound ) { tx_err = ErrInviteInvalid }
 			return
 		}
 		if tx_err = invite.usable( time.Now().UTC() ); tx_err != nil {
 			return
 		}
 
-		created , create_err := createUserTx( store , tx , display_name , invite.Role )
+		// createUserTx (user.go) is the one way a user record is made, so the
+		// two paths cannot drift. It also makes the first admin the owner.
+		created , create_err := createUserTx( tx , display_name , invite.Role )
 		if create_err != nil {
 			tx_err = create_err
 			return
@@ -261,12 +254,10 @@ func ClaimInvite( store *db.Store , credential string , display_name string ) ( 
 
 		invite.UsedCount += 1
 		invite.JoinedUserIDs = append( invite.JoinedUserIDs , created.ID )
-		encoded , encode_err := store.EncodeValue( invite )
-		if encode_err != nil {
-			tx_err = encode_err
+		if tx_err = tx.Put( db.BucketInvites , []byte( invite_id ) , invite ); tx_err != nil {
 			return
 		}
-		if tx_err = bucket.Put( []byte( invite_id ) , encoded ); tx_err != nil {
+		if signed , tx_err = startSignInTx( tx , created , rules ); tx_err != nil {
 			return
 		}
 
@@ -275,6 +266,7 @@ func ClaimInvite( store *db.Store , credential string , display_name string ) ( 
 	} )
 	if err != nil {
 		user = nil
+		signed = nil
 	}
 	return
 }

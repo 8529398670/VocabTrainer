@@ -68,24 +68,39 @@ const Api = {
   rename( displayName )        { return this.post( "/api/account/rename" , { display_name: displayName } ); },
   logout()                     { return this.post( "/api/logout" ); },
   listTeam()                   { return this.request( "/api/team" ); },
-  listUsers()                  { return this.request( "/api/admin/users" ); },
+  listUsers()                  { return this.request( "/api/admin/users" ).then( function ( reply ) { return reply.users; } ); },
   createUser( name , role )    { return this.post( "/api/admin/users" , { display_name: name , role: role } ); },
   reissueLogin( userId )       { return this.post( "/api/admin/users/" + userId + "/reissue-login" ); },
   setDisabled( userId , flag ) { return this.post( "/api/admin/users/" + userId + "/disabled" , { disabled: flag } ); },
 
+  // --- signing in -------------------------------------------------------
+  //
+  // Opening a login or invite link only shows a page; these are the requests
+  // that page sends when the person confirms. Neither has a session yet, so
+  // neither carries a CSRF token: the credential in the body is the
+  // capability, and the server wants it from this site's own page.
+
+  redeemLogin( credential ) {
+    return this.request( "/api/login" , { method: "POST" , body: { credential: credential } } );
+  },
+
   // --- invite links -----------------------------------------------------
   //
-  // inviteState is a GET and spends nothing, which is the point: the join
-  // page can ask about a link as often as it likes. claimInvite is the only
-  // call in the app that consumes a seat, and it goes through post() like
-  // every other write even though there is no session yet to carry a CSRF
-  // token -- the credential in the body is the capability.
+  // inviteState spends nothing, which is the point: the join page can ask
+  // about a link as often as it likes. It is a POST only so the credential
+  // stays out of URLs. claimInvite is the only call in the app that consumes
+  // a seat.
 
-  inviteState( credential )    { return this.request( "/api/invite/" + credential ); },
-  claimInvite( credential , displayName ) {
-    return this.post( "/api/invite/claim" , { credential: credential , display_name: displayName } );
+  inviteState( credential ) {
+    return this.request( "/api/invite/info" , { method: "POST" , body: { credential: credential } } );
   },
-  listInvites()                { return this.request( "/api/admin/invites" ); },
+  claimInvite( credential , displayName ) {
+    return this.request( "/api/invite/claim" , {
+      method: "POST",
+      body: { credential: credential , display_name: displayName },
+    } );
+  },
+  listInvites()                { return this.request( "/api/admin/invites" ).then( function ( reply ) { return reply.invites; } ); },
   createInvite( label , role , maxUses ) {
     return this.post( "/api/admin/invites" , { label: label , role: role , max_uses: maxUses } );
   },

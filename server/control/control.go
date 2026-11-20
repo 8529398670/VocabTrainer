@@ -5,25 +5,43 @@
 // the database open at a time. Rather than working around that, this package
 // leans on it: the server process owns the database, and anything else that
 // needs to act on it -- the manage CLI, a cron job, a sidecar -- asks the
-// server to do so over a unix socket in the app directory.
+// server to do so over a unix socket.
 //
 // That is the cheapest answer available in security terms. There is no second
 // process holding the secret key, no second copy of the model layer's rules
 // to keep in step, and no new network surface: the socket is a file, and it
-// is reachable only by something that can already read the app directory.
+// is reachable only by something that can already read the key.
 //
 // # Why there is no token on this socket
 //
 // There is deliberately no password, token, or handshake here. The socket
-// lives in AppDir, which is mode 0700, next to secret.key and app.db. Any
-// process that can open the socket can already read the key and the database
+// lives in AppDir, which is mode 0700, next to app.db, and only the user that
+// owns config.yaml (mode 0600, holding the key) can reach it. Any process
+// that can open the socket can already read the key and the database
 // directly, so a credential would guard nothing while adding one more secret
 // to store and rotate. The filesystem permission is the authentication.
 //
 // This is also why the socket must never be moved somewhere world-readable,
 // and why the server refuses to bind it over a TCP address: the whole
-// argument depends on the socket being as hard to reach as the database file
-// sitting beside it.
+// argument depends on the socket being as hard to reach as the database file.
+//
+// # In the container
+//
+// The container's data directory is usually shared from the host, and such a
+// mount may be unable to hold a socket at all (colima's refuses the bind). So
+// the image pins the socket to /tmp/control on the container's tmpfs instead
+// (server/config/layout_container.go). The argument above still holds, for
+// these reasons:
+//
+// /tmp itself is open to every user, so the socket never sits there directly.
+// Listen makes /tmp/control mode 0700 and refuses to use it unless it is a
+// real directory that this user owns and nobody else can enter. Anything
+// another user planted first stops the server rather than being trusted.
+//
+// That leaves the container's own user and root, who can both read the key
+// and the database already. Nothing outside the container can reach the
+// socket short of `docker exec`, because a tmpfs is private to its container:
+// that is tighter than a socket in a folder the host shares.
 package control
 
 import (
@@ -31,14 +49,17 @@ import (
 	json "encoding/json"
 	errors "errors"
 	fmt "fmt"
+	fs "io/fs"
 	log "log"
 	net "net"
 	http "net/http"
 	os "os"
+	filepath "path/filepath"
 	runtime "runtime"
 	strconv "strconv"
 	time "time"
 
+	backup "vocabtrainer/server/backup"
 	config "vocabtrainer/server/config"
 	db "vocabtrainer/server/db"
 	models "vocabtrainer/server/models"
@@ -55,14 +76,14 @@ const maxRequestBytes = 64 * 1024
 //
 // This is worth checking by hand because the failure is otherwise a bare
 // "bind: invalid argument" from the kernel, which names neither the limit nor
-// the path that broke it. A deep APP_DIR is all it takes.
+// the path that broke it. A deep server.app_dir is all it takes.
 const maxSocketPathLength = 103
 
 // Server is the control listener. It is created after the database is open,
 // so its existence is itself the signal that a live server holds the lock.
 type Server struct {
 	store    *db.Store
-	cfg      *config.Config
+	settings *config.Holder
 	http     *http.Server
 	listener net.Listener
 	path     string
@@ -73,7 +94,11 @@ type Server struct {
 // A socket file left behind by a crashed process is removed first. That is
 // safe precisely because bolt already granted us the database lock: if this
 // process holds the lock, no live server is using that stale socket.
-func Listen( store *db.Store , cfg *config.Config ) ( server *Server , err error ) {
+// The socket itself is set up from the configuration the server started
+// with; what a request may do (API keys on or off, link lifetimes) is read
+// from the running one, so it follows edits to config.yaml.
+func Listen( store *db.Store , settings *config.Holder ) ( server *Server , err error ) {
+	cfg := settings.Boot()
 	if cfg.ControlSocketEnabled == false {
 		return
 	}
@@ -81,9 +106,17 @@ func Listen( store *db.Store , cfg *config.Config ) ( server *Server , err error
 	if len( cfg.ControlSocketPath ) > maxSocketPathLength {
 		err = fmt.Errorf(
 			"control socket path is %d characters, past the %d the kernel allows: %s\n"+
-				"Set APP_DIR to a shorter path, or set CONTROL_SOCKET=false to run without the socket -- manage will then need the server stopped." ,
+				"Set server.app_dir in config.yaml to a shorter path, or server.control_socket: false to run without the socket -- manage will then need the server stopped." ,
 			len( cfg.ControlSocketPath ) , maxSocketPathLength , cfg.ControlSocketPath )
 		return
+	}
+
+	// The app directory has its own permissions, set when it was made. Any
+	// other home for the socket has to earn them here.
+	if socket_dir := filepath.Dir( cfg.ControlSocketPath ); socket_dir != cfg.AppDir {
+		if err = privateDir( socket_dir ); err != nil {
+			return
+		}
 	}
 
 	if _ , stat_err := os.Stat( cfg.ControlSocketPath ); stat_err == nil {
@@ -99,7 +132,7 @@ func Listen( store *db.Store , cfg *config.Config ) ( server *Server , err error
 		return
 	}
 
-	// Belt and braces on top of the 0700 app directory. On Windows this is a
+	// Belt and braces on top of the 0700 directory around it. On Windows this is a
 	// no-op and the directory ACL is what protects the socket -- see the
 	// package docs; the security argument is the same either way, but it is
 	// worth knowing which mechanism is doing the work.
@@ -114,7 +147,7 @@ func Listen( store *db.Store , cfg *config.Config ) ( server *Server , err error
 
 	server = &Server{
 		store:    store,
-		cfg:      cfg,
+		settings: settings,
 		listener: listener,
 		path:     cfg.ControlSocketPath,
 	}
@@ -131,6 +164,33 @@ func Listen( store *db.Store , cfg *config.Config ) ( server *Server , err error
 			log.Printf( "[control] listener stopped: %v" , serve_err )
 		}
 	}()
+	return
+}
+
+// privateDir makes dir, or accepts it if it is already what making it would
+// have produced: a real directory, owned by this user, that nobody else can
+// enter. It is called for a directory inside /tmp, where anyone can get there
+// first, so the check is the point and an existing directory earns no trust.
+// Lstat rather than Stat, or a symlink would be judged by what it points at.
+func privateDir( dir string ) ( err error ) {
+	if mkdir_err := os.Mkdir( dir , 0o700 ); mkdir_err != nil && errors.Is( mkdir_err , fs.ErrExist ) == false {
+		err = fmt.Errorf(
+			"could not create control socket directory %s: %w\n"+
+				"docker/run.sh mounts a tmpfs at /tmp for this. Without one, set server.control_socket: false -- manage will then need the server stopped." ,
+			dir , mkdir_err )
+		return
+	}
+
+	info , err := os.Lstat( dir )
+	if err != nil {
+		err = fmt.Errorf( "could not check control socket directory %s: %w" , dir , err )
+		return
+	}
+	if info.IsDir() == false || config.OwnedByProcess( info ) == false || info.Mode().Perm()&0o077 != 0 {
+		err = fmt.Errorf(
+			"control socket directory %s is not private to this user (%s), so anyone who can reach it could run admin commands. Remove it and start again." ,
+			dir , info.Mode() )
+	}
 	return
 }
 
@@ -167,6 +227,10 @@ func ( server *Server ) routes() ( handler http.Handler ) {
 	mux.HandleFunc( "GET /v1/invites" , server.handleListInvites )
 	mux.HandleFunc( "POST /v1/invites" , server.handleCreateInvite )
 	mux.HandleFunc( "POST /v1/invites/{id}/revoke" , server.handleRevokeInvite )
+	mux.HandleFunc( "POST /v1/users/{id}/revoke-access" , server.handleRevokeAccess )
+	mux.HandleFunc( "POST /v1/users/{id}/delete" , server.handleDeleteUser )
+	mux.HandleFunc( "POST /v1/owner" , server.handleTransferOwner )
+	mux.HandleFunc( "POST /v1/backup" , server.handleBackup )
 	handler = mux
 	return
 }
@@ -204,6 +268,25 @@ func pathUserID( w http.ResponseWriter , r *http.Request ) ( user_id uint64 , ok
 	return
 }
 
+// BackupRequest is the body of POST /v1/backup.
+type BackupRequest struct {
+	Out        string `json:"out"`
+	IncludeKey bool   `json:"include_key"`
+}
+
+// handleBackup is why a backup can run against a live server: bolt lets only
+// this process read the file, so the copy has to be made from in here.
+func ( server *Server ) handleBackup( w http.ResponseWriter , r *http.Request ) {
+	request := BackupRequest{}
+	if decodeBody( w , r , &request ) == false { return }
+	result , err := backup.Create( server.store , server.settings.Get() , backup.Options{ Out: request.Out , IncludeKey: request.IncludeKey } )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusOK , result )
+}
+
 // HealthResponse tells a client it is talking to a live server, and which one.
 type HealthResponse struct {
 	ProjectName string `json:"project_name"`
@@ -218,15 +301,19 @@ type UserResponse struct {
 	DisplayName string `json:"display_name"`
 	Role        string `json:"role"`
 	Disabled    bool   `json:"disabled"`
+	Owner       bool   `json:"owner"`
 	Credential  string `json:"credential,omitempty"`
+	// LoginLink describes the link Credential opens: how often, how long.
+	LoginLink *models.LoginLinkInfo `json:"login_link,omitempty"`
 }
 
-func userResponse( user *models.User , credential string ) ( result UserResponse ) {
+func userResponse( user *models.User , owner_id uint64 , credential string ) ( result UserResponse ) {
 	result = UserResponse{
 		ID:          user.ID,
 		DisplayName: user.DisplayName,
 		Role:        user.Role,
 		Disabled:    user.Disabled(),
+		Owner:       user.ID == owner_id,
 		Credential:  credential,
 	}
 	return
@@ -300,10 +387,46 @@ type CreateInviteRequest struct {
 	MaxUses int    `json:"max_uses"`
 }
 
+// TransferOwnerRequest is the body of POST /v1/owner.
+type TransferOwnerRequest struct {
+	UserID uint64 `json:"user_id"`
+}
+
+// writeOwnedUser re-reads a user and the owner marker and answers with both,
+// so every response reflects what is actually stored.
+func ( server *Server ) writeOwnedUser( w http.ResponseWriter , user_id uint64 , credential string , link *models.LoginLinkInfo ) {
+	user , err := models.GetUser( server.store , user_id )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	owner_id , err := models.OwnerID( server.store )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
+	result := userResponse( user , owner_id , credential )
+	result.LoginLink = link
+	writeJSON( w , http.StatusOK , result )
+}
+
 // CreateUserRequest is the body of POST /v1/users.
 type CreateUserRequest struct {
 	DisplayName string `json:"display_name"`
 	Role        string `json:"role"`
+	models.LoginLinkRequest
+}
+
+// loginLink resolves a link request against the live config, as the web
+// routes do.
+func ( server *Server ) loginLink( w http.ResponseWriter , request models.LoginLinkRequest ) ( options models.LoginLinkOptions , ok bool ) {
+	options , err := models.ResolveLoginLink( request , server.cfg().LoginTokenTTL , server.cfg().MultiUseLoginTokenTTL )
+	if err != nil {
+		writeError( w , http.StatusBadRequest , err.Error() )
+		return
+	}
+	ok = true
+	return
 }
 
 // SetDisabledRequest is the body of POST /v1/users/{id}/disabled.
@@ -311,10 +434,22 @@ type SetDisabledRequest struct {
 	Disabled bool `json:"disabled"`
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 func ( server *Server ) handleHealth( w http.ResponseWriter , r *http.Request ) {
 	writeJSON( w , http.StatusOK , HealthResponse{
-		ProjectName: server.cfg.ProjectName,
-		AppDir:      server.cfg.AppDir,
+		ProjectName: server.cfg().ProjectName,
+		AppDir:      server.cfg().AppDir,
 	} )
 }
 
@@ -324,9 +459,14 @@ func ( server *Server ) handleListUsers( w http.ResponseWriter , r *http.Request
 		writeError( w , http.StatusInternalServerError , err.Error() )
 		return
 	}
+	owner_id , err := models.OwnerID( server.store )
+	if err != nil {
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
+	}
 	out := []UserResponse{}
 	for _ , user := range users {
-		out = append( out , userResponse( user , "" ) )
+		out = append( out , userResponse( user , owner_id , "" ) )
 	}
 	writeJSON( w , http.StatusOK , out )
 }
@@ -346,22 +486,30 @@ func ( server *Server ) handleCreateUser( w http.ResponseWriter , r *http.Reques
 		writeError( w , http.StatusBadRequest , "role must be admin or user" )
 		return
 	}
+	options , ok := server.loginLink( w , body.LoginLinkRequest )
+	if ok == false { return }
 
 	user , err := models.CreateUser( server.store , body.DisplayName , body.Role )
 	if err != nil {
 		writeError( w , http.StatusInternalServerError , err.Error() )
 		return
 	}
-	credential , err := models.IssueLoginToken( server.store , user.ID , server.cfg.LoginTokenTTL )
+	credential , info , err := models.IssueLoginLink( server.store , user.ID , options )
 	if err != nil {
 		writeError( w , http.StatusInternalServerError , err.Error() )
 		return
 	}
-	writeJSON( w , http.StatusOK , userResponse( user , credential ) )
+	server.writeOwnedUser( w , user.ID , credential , &info )
 }
 
 func ( server *Server ) handleReissueLogin( w http.ResponseWriter , r *http.Request ) {
 	user_id , ok := pathUserID( w , r )
+	if ok == false { return }
+
+	// The body is optional: no body is a link that works once.
+	body := models.LoginLinkRequest{}
+	if r.ContentLength != 0 && decodeBody( w , r , &body ) == false { return }
+	options , ok := server.loginLink( w , body )
 	if ok == false { return }
 
 	user , err := models.GetUser( server.store , user_id )
@@ -369,18 +517,19 @@ func ( server *Server ) handleReissueLogin( w http.ResponseWriter , r *http.Requ
 		writeError( w , http.StatusNotFound , fmt.Sprintf( "no user with id %d" , user_id ) )
 		return
 	}
-	credential , err := models.IssueLoginToken( server.store , user.ID , server.cfg.LoginTokenTTL )
+	credential , info , err := models.IssueLoginLink( server.store , user.ID , options )
 	if err != nil {
 		writeError( w , http.StatusInternalServerError , err.Error() )
 		return
 	}
-	writeJSON( w , http.StatusOK , userResponse( user , credential ) )
+	server.writeOwnedUser( w , user.ID , credential , &info )
 }
 
-// handleSetDisabled revokes sessions on the same request that disables the
-// account, matching the admin route. Doing it here rather than leaving it to
-// the caller is what keeps "disabled" meaning "logged out now" no matter
-// which door the change came through.
+// handleSetDisabled goes through models.SetUserDisabled, which deletes the
+// account's sessions and live login links in the same transaction as the
+// change. Keeping that in the model rather than in each caller is what keeps
+// "disabled" meaning "logged out now" no matter which door the change came
+// through.
 func ( server *Server ) handleSetDisabled( w http.ResponseWriter , r *http.Request ) {
 	user_id , ok := pathUserID( w , r )
 	if ok == false { return }
@@ -394,24 +543,84 @@ func ( server *Server ) handleSetDisabled( w http.ResponseWriter , r *http.Reque
 		return
 	}
 	if err = models.SetUserDisabled( server.store , user.ID , body.Disabled ); err != nil {
-		writeError( w , http.StatusInternalServerError , err.Error() )
-		return
-	}
-	if body.Disabled {
-		if err = models.DestroyAllSessionsForUser( server.store , user.ID ); err != nil {
-			writeError( w , http.StatusInternalServerError , err.Error() )
+		if errors.Is( err , models.ErrOwnerProtected ) {
+			writeError( w , http.StatusForbidden , err.Error() )
 			return
 		}
+		writeError( w , http.StatusInternalServerError , err.Error() )
+		return
 	}
 
 	// Re-read rather than patching the copy in hand, so the response
 	// reflects what is actually stored.
-	user , err = models.GetUser( server.store , user.ID )
+	server.writeOwnedUser( w , user.ID , "" , nil )
+}
+
+// handleRevokeAccess is models.RevokeAllCredentials over the socket: every
+// session, live login link, and live API key the account holds stops
+// working now. The account stays enabled.
+//
+// Unlike the web route, this one may cut off the owner: when it is the
+// owner's own credentials that leaked, the operator is who cleans up.
+func ( server *Server ) handleRevokeAccess( w http.ResponseWriter , r *http.Request ) {
+	user_id , ok := pathUserID( w , r )
+	if ok == false { return }
+
+	if _ , err := models.GetUser( server.store , user_id ); err != nil {
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no user with id %d" , user_id ) )
+		return
+	}
+	revoked , err := models.RevokeAllCredentials( server.store , user_id , true )
 	if err != nil {
 		writeError( w , http.StatusInternalServerError , err.Error() )
 		return
 	}
-	writeJSON( w , http.StatusOK , userResponse( user , "" ) )
+	writeJSON( w , http.StatusOK , revoked )
+}
+
+
+// handleDeleteUser is models.DeleteUser with the operator as the actor: any
+// account but the owner can be deleted, admins included. The owner has to be
+// moved first with POST /v1/owner.
+func ( server *Server ) handleDeleteUser( w http.ResponseWriter , r *http.Request ) {
+	user_id , ok := pathUserID( w , r )
+	if ok == false { return }
+
+	removed , err := models.DeleteUser( server.store , user_id , 0 )
+	switch {
+	case err == nil:
+		writeJSON( w , http.StatusOK , removed )
+	case errors.Is( err , db.ErrNotFound ):
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no user with id %d" , user_id ) )
+	case errors.Is( err , models.ErrOwnerProtected ):
+		writeError( w , http.StatusForbidden , err.Error() )
+	default:
+		writeError( w , http.StatusInternalServerError , err.Error() )
+	}
+}
+
+// handleTransferOwner moves ownership to another enabled admin. There is no
+// web route for this on purpose -- see models.TransferOwner.
+func ( server *Server ) handleTransferOwner( w http.ResponseWriter , r *http.Request ) {
+	body := TransferOwnerRequest{}
+	if decodeBody( w , r , &body ) == false { return }
+
+	err := models.TransferOwner( server.store , body.UserID )
+	switch {
+	case err == nil:
+		server.writeOwnedUser( w , body.UserID , "" , nil )
+	case errors.Is( err , db.ErrNotFound ):
+		writeError( w , http.StatusNotFound , fmt.Sprintf( "no user with id %d" , body.UserID ) )
+	case errors.Is( err , models.ErrNotAdmin ):
+		writeError( w , http.StatusBadRequest , err.Error() )
+	default:
+		writeError( w , http.StatusInternalServerError , err.Error() )
+	}
+}
+
+func ( server *Server ) cfg() ( cfg *config.Config ) {
+	cfg = server.settings.Get()
+	return
 }
 
 // handleListInvites and the two below it validate through the same models
@@ -452,7 +661,7 @@ func ( server *Server ) handleCreateInvite( w http.ResponseWriter , r *http.Requ
 	}
 
 	invite_id , credential , err := models.IssueInvite(
-		server.store , 0 , body.Role , body.Label , body.MaxUses , server.cfg.InviteTTL )
+		server.store , 0 , body.Role , body.Label , body.MaxUses , server.cfg().InviteTTL )
 	if err != nil {
 		writeError( w , http.StatusInternalServerError , err.Error() )
 		return

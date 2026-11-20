@@ -6,23 +6,38 @@ import (
 	models "vocabtrainer/server/models"
 )
 
-// ListTeam exists so that ordinary features -- an assignee dropdown, an owner
+// teamMember is one person as ListTeam names them: who you can hand work to.
+type teamMember struct {
+	ID          uint64 `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+func ( teamMember ) APIName() ( name string ) { name = "Member"; return }
+
+type listTeamReply struct {
+	Members []teamMember `json:"members"`
+	Paged
+}
+
+// listTeam exists so that ordinary features -- an assignee dropdown, an owner
 // picker, an @mention list -- do not need admin rights just to render a list
 // of names. It returns id and display name only; role and disabled status
 // stay behind the admin endpoint, because those are facts about who
 // administers the app rather than about who you can hand work to.
-func ( handlers *Handlers ) ListTeam( c fiber.Ctx ) ( err error ) {
-	users , list_err := models.ListUsers( handlers.Store )
-	if list_err != nil {
-		err = serverError( c )
-		return
-	}
-
-	members := []fiber.Map{}
+//
+// @route("GET /api/team", summary="List team",
+//     tag="Account",
+//     description="People with an active account, a page at a time: id and display name.",
+// )
+func ( handlers *Handlers ) listTeam( c fiber.Ctx , in *Page ) ( reply *listTeamReply , err error ) {
+	users , err := models.ListUsers( handlers.Store )
+	if err != nil { return }
+	members := []teamMember{}
 	for _ , user := range users {
 		if user.Disabled() { continue }
-		members = append( members , fiber.Map{ "id": user.ID , "display_name": user.DisplayName } )
+		members = append( members , teamMember{ ID: user.ID , DisplayName: user.DisplayName } )
 	}
-	err = c.JSON( members )
+	reply = &listTeamReply{}
+	reply.Members , reply.Paged = cutPage( members , *in )
 	return
 }
