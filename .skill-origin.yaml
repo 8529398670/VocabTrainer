@@ -1,7 +1,7 @@
 # Written by the skill that scaffolded this app; `webserver-upgrade` reads and
 # updates it. Commit it: it is how an update knows where this app started.
 skill: go-webserver
-commit: 60335af96c7e019e0cda33ae52e8b68291d94531
+commit: b3b3e3d6dd09154392f3300a47e04334ed7e67bc
 project_name: "VocabTrainer"
 slug: vocabtrainer
 module_path: vocabtrainer

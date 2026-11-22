@@ -31,6 +31,11 @@ import (
 // Guard.RequireSession), so a leaked key cannot quietly mint its replacement.
 // A key may hand out login links and invite links, but revoking or deleting
 // it voids the ones still usable -- see Guard.RequireSession.
+//
+// The one exception is key minting (portal contract v2): an admin key the
+// owner allowed to (MayMintKeys) may make, list and revoke other accounts'
+// keys through /api/admin/users/{user_id}/keys and /api/admin/keys/{key_id}/revoke.
+// Each key it makes records it, and dies with it.
 
 // keyIDPath is the key a route under /api/keys/{key_id} or
 // /api/admin/keys/{key_id} acts on.
@@ -40,7 +45,7 @@ type keyIDPath struct {
 
 type createAPIKeyRequest struct {
 	Name string `json:"name" jsonschema:"minLength=1,maxLength=80" error:"name must be 1-80 characters"`
-	Role string `json:"role,omitempty" jsonschema:"enum=admin,enum=user,default=user" error:"role must be admin or user"`
+	Role string `json:"role,omitempty" jsonschema:"enum=admin,enum=user,enum=viewer,default=user" error:"role must be admin, user or viewer"`
 	// ExpiresInDays is a pointer so that three cases stay distinguishable:
 	// absent means "use the configured default", 0 means "never expires", and
 	// a number means that many days. With a plain int, "never" and "unset"
@@ -80,6 +85,21 @@ type apiKeySignInRequest struct {
 	MaySignIn bool `json:"may_sign_in" jsonschema_description:"true lets the key make a login link for your account: one that works once, for at most 15 minutes."`
 }
 
+type apiKeyMintingRequest struct {
+	keyIDPath
+	MayMintKeys bool `json:"may_mint_keys" jsonschema_description:"true lets this key make, list and revoke other accounts' keys, each recording this key and revoked with it."`
+}
+
+// mintKeyRequest is what POST /api/admin/users/{user_id}/keys takes. The
+// expiry is required and never "never": a key made by a key always dies.
+type mintKeyRequest struct {
+	userIDPath
+	Name          string `json:"name" jsonschema:"minLength=1,maxLength=80" error:"name must be 1-80 characters"`
+	Role          string `json:"role" jsonschema:"enum=admin,enum=user,enum=viewer" jsonschema_description:"Capped at the account's own role." error:"role must be admin, user or viewer"`
+	ExpiresInDays int    `json:"expires_in_days" jsonschema:"minimum=1,maximum=365" jsonschema_description:"Required: 1-365. A minted key always expires." error:"expires_in_days must be 1-365"`
+}
+
+
 type listMyAPIKeysRequest struct {
 	Page
 	Q    string `json:"q,omitempty" query:"q" jsonschema_description:"Keep keys whose name contains this, in any case."`
@@ -94,6 +114,12 @@ type listAllAPIKeysRequest struct {
 	Live string `json:"live,omitempty" query:"live" jsonschema:"enum=true" jsonschema_description:"Leave out revoked and expired keys."`
 	Sort string `json:"sort,omitempty" query:"sort" jsonschema:"enum=display_name,enum=name,enum=role,enum=last_used_at,enum=expires_at,enum=created_at" jsonschema_description:"Field to sort the whole list by. Rows without it go last."`
 	Direction
+}
+
+// userAPIKeysReply is one account's keys, whole: an account holds at most
+// a hundred rows (models.apiKeyMaxRowsPerUser), so it is never paged.
+type userAPIKeysReply struct {
+	Keys []apiKeyRow `json:"keys"`
 }
 
 type apiKeysReply struct {
@@ -122,7 +148,7 @@ type apiKeyRow struct {
 	ID            string    `json:"id"`
 	UserID        uint64    `json:"user_id"`
 	Name          string    `json:"name"`
-	Role          string    `json:"role" jsonschema:"enum=admin,enum=user"`
+	Role          string    `json:"role" jsonschema:"enum=admin,enum=user,enum=viewer"`
 	CreatedAt     time.Time `json:"created_at"`
 	Revoked       bool      `json:"revoked"`
 	Expired       bool      `json:"expired"`
@@ -134,6 +160,8 @@ type apiKeyRow struct {
 	CreatedBy     uint64    `json:"created_by,omitempty" jsonschema_description:"The admin who made this key for its owner. Absent if the owner made it."`
 	CreatedByName string    `json:"created_by_name,omitempty"`
 	MaySignIn     bool      `json:"may_sign_in" jsonschema_description:"Whether this key may make a login link for its own account."`
+	MayMintKeys   bool      `json:"may_mint_keys" jsonschema_description:"Whether this key may make keys for other accounts. Only the owner switches it on."`
+	MintedByKey   string    `json:"minted_by_key" jsonschema_description:"The key that made this one, or empty. Revoking that key revokes this one."`
 }
 
 func ( apiKeyRow ) APIName() ( name string ) { name = "APIKey"; return }
@@ -151,6 +179,8 @@ func newAPIKeyRow( key *models.APIKey , display_name string ) ( row apiKeyRow ) 
 		CreatedBy:   key.CreatedBy,
 		DisplayName: display_name,
 		MaySignIn:   key.MaySignIn,
+		MayMintKeys: key.MayMintKeys,
+		MintedByKey: key.MintedByKey,
 	}
 	if key.ExpiresAt != nil { row.ExpiresAt = *key.ExpiresAt }
 	if key.LastUsedAt != nil { row.LastUsedAt = *key.LastUsedAt }
@@ -478,6 +508,9 @@ func ( handlers *Handlers ) setMyAPIKeySignIn( c fiber.Ctx , in *apiKeySignInReq
 	case errors.Is( set_err , models.ErrAPIKeyDead ):
 		err = refuse( fiber.StatusBadRequest , "only a live key can be allowed to make sign-in links" )
 		return
+	case errors.Is( set_err , models.ErrAPIKeyMinted ):
+		err = refuse( fiber.StatusBadRequest , set_err.Error() )
+		return
 	case set_err != nil:
 		err = set_err
 		return
@@ -485,6 +518,135 @@ func ( handlers *Handlers ) setMyAPIKeySignIn( c fiber.Ctx , in *apiKeySignInReq
 	handlers.audit( c , logs.KindAuth , "api key sign-in links changed" , fiber.Map{ "key_id": key.ID , "may_sign_in": key.MaySignIn } )
 	row := newAPIKeyRow( key , "" )
 	reply = &row
+	return
+}
+
+// setMyAPIKeyMinting lets one of the owner's own admin-role keys make keys
+// for other accounts, or stops it. Session-only and owner-only: it is what an
+// outside admin hub such as ProjectPortal needs to hand its people keys, and
+// nobody else's to give.
+//
+// @route("POST /api/keys/{key_id}/mint-keys", summary="Let one of your keys make keys",
+//     tag="API keys", access=SESSION_ONLY, feature="api_keys",
+//     description="Owner only, on one of your own admin-role keys. When on, the key may make keys for "
+//         "other accounts (never the owner's) through POST /api/admin/users/{user_id}/keys, list them, and "
+//         "revoke them. Each key it makes records it, and revoking or deleting this key revokes them all.",
+// )
+func ( handlers *Handlers ) setMyAPIKeyMinting( c fiber.Ctx , in *apiKeyMintingRequest ) ( reply *apiKeyRow , err error ) {
+	key , set_err := models.SetAPIKeyMinting( handlers.Store , in.KeyID , security.UserFrom( c ).ID , in.MayMintKeys )
+	switch {
+	case errors.Is( set_err , db.ErrNotFound ) , errors.Is( set_err , models.ErrAPIKeyNotYours ):
+		err = refuse( fiber.StatusNotFound , "no such api key" )
+		return
+	case errors.Is( set_err , models.ErrOwnerRequired ):
+		err = refuse( fiber.StatusForbidden , "only the owner can let a key mint keys" )
+		return
+	case errors.Is( set_err , models.ErrAPIKeyNotAdmin ) , errors.Is( set_err , models.ErrAPIKeyMintsNot ) , errors.Is( set_err , models.ErrAPIKeyDead ):
+		err = refuse( fiber.StatusBadRequest , set_err.Error() )
+		return
+	case set_err != nil:
+		err = set_err
+		return
+	}
+	handlers.audit( c , logs.KindAuth , "api key minting changed" , fiber.Map{ "key_id": key.ID , "may_mint_keys": key.MayMintKeys } )
+	row := newAPIKeyRow( key , "" )
+	reply = &row
+	return
+}
+
+// keyMintingOff is the refusal for a key without MayMintKeys on the minting
+// routes. A browser session (an admin's, as role=ADMIN makes sure) passes.
+func keyMintingOff( c fiber.Ctx ) ( refused *refusal ) {
+	actor := security.ActorFrom( c )
+	if actor.ViaAPIKey() && actor.APIKey.MayMintKeys == false {
+		refused = refuse( fiber.StatusForbidden , "key_minting_off" )
+	}
+	return
+}
+
+// mintKeyForUser is a key making a key for an account: portal contract v2's
+// key minting. Rules in models.MintAPIKey; the expiry is required.
+//
+// @route("POST /api/admin/users/{user_id}/keys", summary="Make a key for an account",
+//     tag="API keys", role=ADMIN, feature="api_keys", status=201, errors=(404,),
+//     description="Needs a browser session or a key the owner allowed to make keys (may_mint_keys); any "
+//         "other key gets 403 key_minting_off. The role is capped at the account's own; expires_in_days "
+//         "is required (1-365). Never for the owner. The new key records the key that made it, can never "
+//         "make keys or sign-in links itself, and is revoked when that key is revoked or deleted. Answers "
+//         "with the key and its credential, shown only now.",
+//     mcp_http="Makes an API key, which no MCP tool does.",
+// )
+func ( handlers *Handlers ) mintKeyForUser( c fiber.Ctx , in *mintKeyRequest ) ( reply *newAPIKeyReply , err error ) {
+	if refused := keyMintingOff( c ); refused != nil {
+		err = refused
+		return
+	}
+	if models.ValidAPIKeyName( in.Name ) == false {
+		err = refuse( fiber.StatusBadRequest , "name must be 1-80 characters" )
+		return
+	}
+	if in.ExpiresInDays < 1 || in.ExpiresInDays > 365 {
+		err = refuse( fiber.StatusBadRequest , "expires_in_days must be 1-365" )
+		return
+	}
+	if models.ValidRole( in.Role ) == false {
+		err = refuse( fiber.StatusBadRequest , "role must be admin, user or viewer" )
+		return
+	}
+	actor := security.ActorFrom( c )
+	ttl := time.Duration( in.ExpiresInDays ) * 24 * time.Hour
+	credential , key , issue_err := models.MintAPIKey( handlers.Store , actor.User.ID , actor.KeyID() , in.UserID , in.Name , in.Role , ttl )
+	switch {
+	case errors.Is( issue_err , db.ErrNotFound ):
+		err = refuse( fiber.StatusNotFound , "no such user" )
+		return
+	case errors.Is( issue_err , models.ErrOwnerProtected ):
+		err = refuse( fiber.StatusForbidden , "the owner's keys cannot be minted or revoked this way" )
+		return
+	case errors.Is( issue_err , models.ErrOwnerRequired ):
+		err = refuse( fiber.StatusForbidden , "only the owner can make a key for an admin" )
+		return
+	case errors.Is( issue_err , models.ErrAPIKeyLimit ):
+		err = refuse( fiber.StatusBadRequest , "that account already has the maximum number of live API keys" )
+		return
+	case errors.Is( issue_err , models.ErrAPIKeyDisabled ):
+		err = refuse( fiber.StatusForbidden , "that account is disabled" )
+		return
+	case issue_err != nil:
+		err = issue_err
+		return
+	}
+	reply = &newAPIKeyReply{ apiKeyRow: newAPIKeyRow( key , "" ) , Credential: credential }
+	handlers.audit( c , logs.KindAdmin , "api key minted" , fiber.Map{ "key_id": key.ID , "name": key.Name , "role": key.Role , "user_id": key.UserID , "minted_by_key": key.MintedByKey } )
+	return
+}
+
+// listUserAPIKeys is one account's keys, for a key that makes them.
+//
+// @route("GET /api/admin/users/{user_id}/keys", summary="An account's keys",
+//     tag="API keys", role=ADMIN, feature="api_keys", errors=(404,),
+//     description="One account's keys, revoked and expired ones included, newest first. Each row says "
+//         "which key minted it (minted_by_key, empty when a person made it). Needs a browser session or a "
+//         "key with may_mint_keys; any other key gets 403 key_minting_off.",
+//     mcp_http="Manages API keys, which no MCP tool does.",
+// )
+func ( handlers *Handlers ) listUserAPIKeys( c fiber.Ctx , in *userIDPath ) ( reply *userAPIKeysReply , err error ) {
+	if refused := keyMintingOff( c ); refused != nil {
+		err = refused
+		return
+	}
+	user , get_err := models.GetUser( handlers.Store , in.UserID )
+	if get_err != nil {
+		err = refuse( fiber.StatusNotFound , "no such user" )
+		return
+	}
+	keys , err := models.ListAPIKeysForUser( handlers.Store , user.ID )
+	if err != nil { return }
+	rows := []apiKeyRow{}
+	for _ , key := range keys {
+		rows = append( rows , newAPIKeyRow( key , user.DisplayName ) )
+	}
+	reply = &userAPIKeysReply{ Keys: rows }
 	return
 }
 
@@ -616,16 +778,34 @@ func ( handlers *Handlers ) listAllAPIKeys( c fiber.Ctx , in *listAllAPIKeysRequ
 
 // revokeAnyAPIKey is how an admin kills a credential belonging to someone
 // else -- a laptop that went missing, a CI system being decommissioned, a
-// contractor who has finished.
+// contractor who has finished. Every key it minted goes with it, down the
+// chain (models.VoidLinksMintedByKeyTx).
+//
+// A key the owner allowed to make keys may call it too (key minting), for
+// any key but the owner's; any other key gets 403 key_minting_off.
 //
 // @route("POST /api/admin/keys/{key_id}/revoke", summary="Revoke anyone's key",
-//     tag="API keys", access=SESSION_ONLY, role=ADMIN, feature="api_keys",
+//     tag="API keys", role=ADMIN, feature="api_keys", errors=(404,),
+//     description="Stops the key at once, and every key it made, down the chain. Needs a browser session "
+//         "or a key with may_mint_keys (any other key gets 403 key_minting_off), which may not revoke the "
+//         "owner's keys.",
+//     mcp_http="Manages API keys, which no MCP tool does.",
 // )
 func ( handlers *Handlers ) revokeAnyAPIKey( c fiber.Ctx , in *keyIDPath ) ( reply *okReply , err error ) {
+	if refused := keyMintingOff( c ); refused != nil {
+		err = refused
+		return
+	}
 	key , get_err := models.GetAPIKey( handlers.Store , in.KeyID )
 	if get_err != nil {
 		err = refuse( fiber.StatusNotFound , "no such api key" )
 		return
+	}
+	if security.ActorFrom( c ).ViaAPIKey() {
+		if owner_id , owner_err := models.OwnerID( handlers.Store ); owner_err != nil || owner_id == key.UserID {
+			err = refuse( fiber.StatusForbidden , "the owner's keys cannot be minted or revoked this way" )
+			return
+		}
 	}
 	if revoke_err := models.RevokeAPIKeyAs( handlers.Store , key.ID , security.UserFrom( c ).ID ); revoke_err != nil {
 		err = deleteKeyRefusal( revoke_err )

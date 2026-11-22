@@ -1200,3 +1200,11 @@ button.grade-easy  { background: var(--accent-bg); color: var(--accent);    bord
 @media (orientation: portrait) and (max-height: 40rem) {
   .deck-help { display: none; }
 }
+
+/* A viewer reads and changes nothing (role viewer): app.js marks <html>
+   data-view-only, and every control that writes carries data-write. The
+   server refuses those calls anyway (403 view_only); this only keeps them out
+   of sight. Bootstrap has no class for "hidden under a parent's state". */
+[data-view-only] [data-write] {
+  display: none !important;
+}

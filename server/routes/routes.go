@@ -128,6 +128,10 @@ func ( handlers *Handlers ) Register( app *fiber.App ) {
 	// every route below. See maintenance.go.
 	app.Use( handlers.Maintenance )
 
+	// A viewer reads and changes nothing: one rule for every route, so a
+	// route added later cannot forget it (security.ViewOnly).
+	app.Use( handlers.Guard.ViewOnly )
+
 	// The pages a login link and an invite link open. Opening one only shows
 	// a page; the link is spent by the POST that page sends when the person
 	// confirms. See auth.go and join.go.

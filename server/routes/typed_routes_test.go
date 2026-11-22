@@ -23,9 +23,9 @@ func TestADeclaredRouteChecksItsBody( t *testing.T ) {
 		message string
 	}{
 		{ "a missing field" , fiber.Map{ "role": "user" } , "display name must be 1-80 characters" },
-		{ "another missing field" , fiber.Map{ "display_name": "Bea" } , "role must be admin or user" },
+		{ "another missing field" , fiber.Map{ "display_name": "Bea" } , "role must be admin, user or viewer" },
 		{ "a wrong type" , fiber.Map{ "display_name": 5 , "role": "user" } , "malformed request body" },
-		{ "a value not in the enum" , fiber.Map{ "display_name": "Bea" , "role": "boss" } , "role must be admin or user" },
+		{ "a value not in the enum" , fiber.Map{ "display_name": "Bea" , "role": "boss" } , "role must be admin, user or viewer" },
 		{ "too long" , fiber.Map{ "display_name": strings.Repeat( "x" , 81 ) , "role": "user" } , "display name must be 1-80 characters" },
 		{ "out of range" , fiber.Map{ "display_name": "Bea" , "role": "user" , "max_uses": 5000 } , linkLimits },
 		{ "below range" , fiber.Map{ "display_name": "Bea" , "role": "user" , "expires_in_minutes": -1 } , linkLimits },

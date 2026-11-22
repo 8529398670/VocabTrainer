@@ -28,12 +28,17 @@ func Housekeeping( registry *Registry , store *db.Store , logger *logs.Logger , 
 // listing, and old webhook rows. None of it is a correctness issue -- every one of those is
 // already refused on read -- so this only stops the bolt file growing forever.
 // Every step runs whatever happens to the one before it.
+//
+// Its first step is the one exception: accounts whose expiry has passed are
+// disabled and their access revoked (models.ExpireAccounts). They already
+// stopped working when the time passed; this makes it stick.
 func purge( store *db.Store ) ( run Func ) {
 	run = func() ( note string , err error ) {
+		expired , expired_err := models.ExpireAccounts( store )
 		sessions , sessions_err := models.PurgeExpiredSessions( store )
 		tokens , tokens_err := models.PurgeExpiredLoginTokens( store )
-		note = fmt.Sprintf( "removed %d sessions, %d login links" , sessions , tokens )
-		err = errors.Join( sessions_err , tokens_err )
+		note = fmt.Sprintf( "expired %d accounts, removed %d sessions, %d login links" , expired , sessions , tokens )
+		err = errors.Join( expired_err , sessions_err , tokens_err )
 		keys , keys_err := models.PurgeDeadAPIKeys( store )
 		note += fmt.Sprintf( ", %d keys" , keys )
 		err = errors.Join( err , keys_err )

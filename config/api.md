@@ -453,11 +453,14 @@ Redeem a login link
 | POST | [`/api/admin/keys/{key_id}/expiry`](#post-apiadminkeyskey_idexpiry) | Change when anyone's key expires | browser session only, admins |
 | POST | [`/api/admin/keys/{key_id}/rename`](#post-apiadminkeyskey_idrename) | Rename anyone's key | browser session only, admins |
 | POST | [`/api/admin/keys/{key_id}/restore`](#post-apiadminkeyskey_idrestore) | Undo deleting anyone's key | browser session only, admins |
-| POST | [`/api/admin/keys/{key_id}/revoke`](#post-apiadminkeyskey_idrevoke) | Revoke anyone's key | browser session only, admins |
+| POST | [`/api/admin/keys/{key_id}/revoke`](#post-apiadminkeyskey_idrevoke) | Revoke anyone's key | browser session or API key, admins |
+| GET | [`/api/admin/users/{user_id}/keys`](#get-apiadminusersuser_idkeys) | An account's keys | browser session or API key, admins |
+| POST | [`/api/admin/users/{user_id}/keys`](#post-apiadminusersuser_idkeys) | Make a key for an account | browser session or API key, admins |
 | GET | [`/api/keys`](#get-apikeys) | Your API keys | browser session only, anyone signed in |
 | POST | [`/api/keys`](#post-apikeys) | Create an API key | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/delete`](#post-apikeyskey_iddelete) | Delete one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/expiry`](#post-apikeyskey_idexpiry) | Change when one of your keys expires | browser session only, anyone signed in |
+| POST | [`/api/keys/{key_id}/mint-keys`](#post-apikeyskey_idmint-keys) | Let one of your keys make keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/rename`](#post-apikeyskey_idrename) | Rename one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/restore`](#post-apikeyskey_idrestore) | Undo deleting one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/revoke`](#post-apikeyskey_idrevoke) | Revoke one of your keys | browser session only, anyone signed in |
@@ -509,7 +512,7 @@ Any admin may do this for an ordinary user, and only the owner for another admin
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
 | `expires_in_days` | integer or null | no | 0 to 3650 | Absent or null: the configured default. 0: never expires. |
 | `name` | string | yes | 1 to 80 characters |  |
-| `role` | string | no | one of `admin`, `user`; default `user` |  |
+| `role` | string | no | one of `admin`, `user`, `viewer`; default `user` |  |
 | `user_id` | integer | yes | at least 1 |  |
 
 **Reply 201**: Success
@@ -628,9 +631,11 @@ Undo deleting anyone's key
 
 Revoke anyone's key
 
+Stops the key at once, and every key it made, down the chain. Needs a browser session or a key with may_mint_keys (any other key gets 403 key_minting_off), which may not revoke the owner's keys.
+
 |  |  |
 |---|---|
-| Who may call | browser session only, admins |
+| Who may call | browser session or API key, admins |
 | Errors | 400, 401, 403, 404, 429, 503 |
 
 **Parameters**
@@ -650,6 +655,59 @@ Revoke anyone's key
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
 | `ok` | boolean | yes |  |  |
+
+### GET /api/admin/users/{user_id}/keys
+
+An account's keys
+
+One account's keys, revoked and expired ones included, newest first. Each row says which key minted it (minted_by_key, empty when a person made it). Needs a browser session or a key with may_mint_keys; any other key gets 403 key_minting_off.
+
+|  |  |
+|---|---|
+| Who may call | browser session or API key, admins |
+| Errors | 400, 401, 403, 404, 429, 503 |
+
+**Parameters**
+
+| Name | In | Type | Required | Limits | Description |
+|---|---|---|---|---|---|
+| `user_id` | path | integer | yes | at least 1 | The account's id, from GET /api/admin/users (admin_list_users over MCP). |
+
+**Reply 200**: Success
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `keys` | array of [`APIKey`](#apikey) | yes |  |  |
+
+### POST /api/admin/users/{user_id}/keys
+
+Make a key for an account
+
+Needs a browser session or a key the owner allowed to make keys (may_mint_keys); any other key gets 403 key_minting_off. The role is capped at the account's own; expires_in_days is required (1-365). Never for the owner. The new key records the key that made it, can never make keys or sign-in links itself, and is revoked when that key is revoked or deleted. Answers with the key and its credential, shown only now.
+
+|  |  |
+|---|---|
+| Who may call | browser session or API key, admins |
+| Errors | 400, 401, 403, 404, 429, 503 |
+
+**Parameters**
+
+| Name | In | Type | Required | Limits | Description |
+|---|---|---|---|---|---|
+| `user_id` | path | integer | yes | at least 1 | The account's id, from GET /api/admin/users (admin_list_users over MCP). |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+| `expires_in_days` | integer | yes | 1 to 365 | Required: 1-365. A minted key always expires. |
+| `name` | string | yes | 1 to 80 characters |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` | Capped at the account's own role. |
+
+**Reply 201**: Success
+
+[`NewAPIKey`](#newapikey).
 
 ### GET /api/keys
 
@@ -695,7 +753,7 @@ Create an API key
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
 | `expires_in_days` | integer or null | no | 0 to 3650 | Absent or null: the configured default. 0: never expires. |
 | `name` | string | yes | 1 to 80 characters |  |
-| `role` | string | no | one of `admin`, `user`; default `user` |  |
+| `role` | string | no | one of `admin`, `user`, `viewer`; default `user` |  |
 
 **Reply 201**: Success
 
@@ -749,6 +807,34 @@ Change when one of your keys expires
 |---|---|---|---|---|
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
 | `expires_in_days` | integer | yes | 0 to 3650 | Counted from now. 0 means it never expires. |
+
+**Reply 200**: Success
+
+[`APIKey`](#apikey).
+
+### POST /api/keys/{key_id}/mint-keys
+
+Let one of your keys make keys
+
+Owner only, on one of your own admin-role keys. When on, the key may make keys for other accounts (never the owner's) through POST /api/admin/users/{user_id}/keys, list them, and revoke them. Each key it makes records it, and revoking or deleting this key revokes them all.
+
+|  |  |
+|---|---|
+| Who may call | browser session only, anyone signed in |
+| Errors | 400, 401, 403, 404, 429, 503 |
+
+**Parameters**
+
+| Name | In | Type | Required | Limits | Description |
+|---|---|---|---|---|---|
+| `key_id` | path | string | yes |  | The key's id, from GET /api/keys (GET /api/admin/keys for anyone's). |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+| `may_mint_keys` | boolean | yes |  | true lets this key make, list and revoke other accounts' keys, each recording this key and revoked with it. |
 
 **Reply 200**: Success
 
@@ -876,6 +962,7 @@ Off by default. When on, the key may ask POST /api/account/login-link for a link
 | POST | [`/api/admin/users/{user_id}/cancel-login-link`](#post-apiadminusersuser_idcancel-login-link) | Stop an account's login link working | browser session or API key, admins |
 | POST | [`/api/admin/users/{user_id}/delete`](#post-apiadminusersuser_iddelete) | Delete an account | browser session or API key, admins |
 | POST | [`/api/admin/users/{user_id}/disabled`](#post-apiadminusersuser_iddisabled) | Disable or enable a user | browser session or API key, admins |
+| POST | [`/api/admin/users/{user_id}/expiry`](#post-apiadminusersuser_idexpiry) | Set when an account expires | browser session or API key, admins |
 | POST | [`/api/admin/users/{user_id}/reissue-login`](#post-apiadminusersuser_idreissue-login) | A new login link for an account | browser session or API key, admins |
 | POST | [`/api/admin/users/{user_id}/rename`](#post-apiadminusersuser_idrename) | Rename someone | browser session or API key, admins |
 | POST | [`/api/admin/users/{user_id}/revoke-access`](#post-apiadminusersuser_idrevoke-access) | Revoke a user's access | browser session or API key, admins |
@@ -994,7 +1081,7 @@ Accounts, a page at a time, including disabled ones, with each one's role and wh
 
 Create an account
 
-Make a new account and its first login link, to hand to the person. role is admin or user. Answers with user_id and the link.
+Make a new account and its first login link, to hand to the person. role is admin, user or viewer (reads only). account_expires_at, when given, is when the account stops working. Answers with user_id and the link.
 
 |  |  |
 |---|---|
@@ -1005,11 +1092,12 @@ Make a new account and its first login link, to hand to the person. role is admi
 
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
+| `account_expires_at` | string (date-time) or null | no |  | When the account stops working (RFC 3339). Left out: never. expires_in_minutes is the login link's expiry, not this. |
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
 | `display_name` | string | yes | 1 to 80 characters |  |
 | `expires_in_minutes` | integer or null | no | 0 to 525600 | 0 never expires. Default auth.login_token_ttl_seconds for a link that works once, auth.multi_use_login_token_ttl_seconds otherwise. |
 | `max_uses` | integer or null | no | 0 to 1000 | Sign-ins the link allows: 1-1000, or 0 for unlimited. Default 1. |
-| `role` | string | yes | one of `admin`, `user` |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` |  |
 
 **Reply 201**: Success
 
@@ -1110,6 +1198,37 @@ Switch an account off (disabled: true) or back on (false). Disabling signs it ou
 
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
+| `ok` | boolean | yes |  |  |
+
+### POST /api/admin/users/{user_id}/expiry
+
+Set when an account expires
+
+expires_at is when the account stops working (RFC 3339), or null for never. Once it passes the account counts as disabled: sign-in, its sessions and its keys stop, and housekeeping disables it and revokes its access. A later expiry does not re-enable an account housekeeping already disabled. It must be in the future. The owner's account never expires; only the owner sets an admin's.
+
+|  |  |
+|---|---|
+| Who may call | browser session or API key, admins |
+| Errors | 400, 401, 403, 404, 429, 503 |
+
+**Parameters**
+
+| Name | In | Type | Required | Limits | Description |
+|---|---|---|---|---|---|
+| `user_id` | path | integer | yes | at least 1 | The account's id, from GET /api/admin/users (admin_list_users over MCP). |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+| `expires_at` | string (date-time) or null | yes |  | When the account stops working (RFC 3339), or null for never. |
+
+**Reply 200**: Success
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `expires_at` | string (date-time) or null | yes |  | null when it never expires. |
 | `ok` | boolean | yes |  |  |
 
 ### POST /api/admin/users/{user_id}/reissue-login
@@ -1213,7 +1332,7 @@ For an account that may be compromised: ends every session and voids its live lo
 
 Change an account's role
 
-Make an account an admin or an ordinary user. Only the owner takes an admin's rights away; the owner is always an admin, and nobody changes their own role. Becoming an admin ends the account's sessions and live login link.
+Make an account an admin, an ordinary user, or a viewer, who may read but change nothing. Only the owner takes an admin's rights away; the owner is always an admin, and nobody changes their own role. Becoming an admin ends the account's sessions and live login link.
 
 |  |  |
 |---|---|
@@ -1231,7 +1350,7 @@ Make an account an admin or an ordinary user. Only the owner takes an admin's ri
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
-| `role` | string | yes | one of `admin`, `user` |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` |  |
 
 **Reply 200**: Success
 
@@ -1410,10 +1529,10 @@ Runs POST /api/admin/users/{user_id}/role once per item: items holds each one's 
 |---|---|---|---|---|
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
 | `items` | array of object | yes |  | One entry per thing to change: its id, and any field that differs from shared. |
-| `items[].role` | string | no | one of `admin`, `user` |  |
+| `items[].role` | string | no | one of `admin`, `user`, `viewer` |  |
 | `items[].user_id` | integer | yes | at least 1 | The account's id, from GET /api/admin/users (admin_list_users over MCP). |
 | `shared` | object | no |  | Fields every item gets, unless the item sets its own. |
-| `shared.role` | string | no | one of `admin`, `user` |  |
+| `shared.role` | string | no | one of `admin`, `user`, `viewer` |  |
 
 **Reply 200**: Success
 
@@ -2116,11 +2235,13 @@ The shapes the routes above refer to by name.
 | `id` | string | yes |  |  |
 | `last_used_at` | string (date-time) | no |  |  |
 | `live` | boolean | yes |  |  |
+| `may_mint_keys` | boolean | yes |  | Whether this key may make keys for other accounts. Only the owner switches it on. |
 | `may_sign_in` | boolean | yes |  | Whether this key may make a login link for its own account. |
+| `minted_by_key` | string | yes |  | The key that made this one, or empty. Revoking that key revokes this one. |
 | `name` | string | yes |  |  |
 | `revoked` | boolean | yes |  |  |
 | `revoked_at` | string (date-time) | no |  |  |
-| `role` | string | yes | one of `admin`, `user` |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` |  |
 | `user_id` | integer | yes |  |  |
 
 ### BulkReply
@@ -2274,7 +2395,7 @@ The shapes the routes above refer to by name.
 
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
-| `account_role` | string | yes |  |  |
+| `account_role` | string | yes | one of `admin`, `user`, `viewer` |  |
 | `announcement` | string | yes |  | server.announcement. Empty when there is none. |
 | `api_doc_url` | string | yes |  | Where to read the API reference as a page for people: config/api.md in app.repo, or /docs/api when there is no repo. |
 | `api_key_id` | string | no |  | API keys only. |
@@ -2282,6 +2403,8 @@ The shapes the routes above refer to by name.
 | `api_keys_enabled` | boolean | yes |  |  |
 | `auth` | string | yes |  |  |
 | `authenticated` | boolean | yes |  |  |
+| `capabilities` | array of string | yes |  | The optional parts of that contract this app has on now: viewer_role, account_expiry, key_minting, invite_links, key_sign_in. |
+| `contract` | integer | yes |  | Which version of the portal contract this app speaks (ProjectPortal's CROSS_PROJECT.md). |
 | `csrf_token` | string | no |  | Browser sessions only. |
 | `description` | string | yes |  | app.description. Empty when there is none. |
 | `display_name` | string | yes |  |  |
@@ -2291,9 +2414,10 @@ The shapes the routes above refer to by name.
 | `logs_enabled` | boolean | yes |  |  |
 | `logs_ui_clicks` | boolean | yes |  |  |
 | `maintenance` | string | yes | one of `none`, `read_only`, `full` |  |
+| `may_mint_keys` | boolean | no |  | API keys only: whether this key may make keys for other accounts. |
 | `openapi_url` | string | yes |  | Where to read this API's reference: config/api.json in app.repo, or /api/api.json when there is no repo. |
 | `repo` | string | yes |  | app.repo without a trailing / or .git: where the source lives. Empty when it is not set. |
-| `role` | string | yes |  | The effective role: never higher than an API key's own. |
+| `role` | string | yes | one of `admin`, `user`, `viewer` | The effective role: never higher than an API key's own. A viewer may read, and change nothing. |
 | `show_about` | boolean | yes |  | app.show_about: whether the menu has About. |
 | `version` | string | yes |  | The running build. dev when none was stamped. |
 
@@ -2318,11 +2442,13 @@ The shapes the routes above refer to by name.
 | `id` | string | yes |  |  |
 | `last_used_at` | string (date-time) | no |  |  |
 | `live` | boolean | yes |  |  |
+| `may_mint_keys` | boolean | yes |  | Whether this key may make keys for other accounts. Only the owner switches it on. |
 | `may_sign_in` | boolean | yes |  | Whether this key may make a login link for its own account. |
+| `minted_by_key` | string | yes |  | The key that made this one, or empty. Revoking that key revokes this one. |
 | `name` | string | yes |  |  |
 | `revoked` | boolean | yes |  |  |
 | `revoked_at` | string (date-time) | no |  |  |
-| `role` | string | yes | one of `admin`, `user` |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` |  |
 | `user_id` | integer | yes |  |  |
 
 ### PruneResult
@@ -2443,9 +2569,11 @@ One of these:
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
 | `created_at` | string (date-time) | yes |  |  |
-| `disabled` | boolean | yes |  |  |
+| `disabled` | boolean | yes |  | Switched off, or its expiry has passed. |
 | `display_name` | string | yes |  |  |
+| `expired` | boolean | yes |  | Whether expires_at has passed. |
+| `expires_at` | string (date-time) or null | yes |  | When the account stops working, or null for never. |
 | `id` | integer | yes |  |  |
 | `login_link` | [`LoginLink`](#loginlink) or null | yes |  | The account's live login link, or null. |
 | `owner` | boolean | yes |  |  |
-| `role` | string | yes | one of `admin`, `user` |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` |  |

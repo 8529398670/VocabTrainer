@@ -412,8 +412,10 @@ func deletePendingLoginTokens( tx *db.Tx , user_id uint64 ) ( removed int , err 
 // (the one revoking or deleting the key), every login link the key made that
 // could still sign someone in is deleted, every browser session one of those
 // links signed in is ended, along with a sign-in still waiting on its
-// two-factor code, and every invite link it made is switched off. Restoring a
-// deleted key brings none of them back.
+// two-factor code, and every invite link it made is switched off. Every API
+// key it made (APIKey.MintedByKey) is revoked too, and the same is done for
+// each of those, down the whole chain. Restoring a deleted key brings none of
+// them back.
 //
 // Sessions made through an invite link the key made stay: those are the
 // accounts of the people who joined, not a way into an existing one.
@@ -433,6 +435,9 @@ func VoidLinksMintedByKeyTx( tx *db.Tx , key_id string ) ( voided int , err erro
 		} )
 	voided += ended
 	if err != nil { return }
+	// And the keys it made, with what each of those made, down the chain.
+	minted , err := revokeKeysMintedByTx( tx , key_id )
+	voided += minted
 	return
 }
 

@@ -177,6 +177,12 @@ func TransferOwner( store *db.Store , user_id uint64 ) ( err error ) {
 			tx_err = ErrNotAdmin
 			return
 		}
+		// The owner never expires (SetUserExpiry), so the new one stops having
+		// an expiry here.
+		if target.ExpiresAt != nil {
+			target.ExpiresAt = nil
+			if tx_err = tx.Put( db.BucketUsers , encryption.Uint64ToBytes( user_id ) , target ); tx_err != nil { return }
+		}
 		tx_err = setOwnerTx( tx , user_id )
 		return
 	} )

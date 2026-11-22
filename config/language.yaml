@@ -255,6 +255,7 @@ admin:
   new_name_placeholder: "Their name"
   new_role_label: "Role"
   role_user: "user"
+  role_viewer: "viewer"
   role_admin: "admin"
   create_button: "Create login link"
   link_notice: "Send this one-time link. It is shown once and cannot be recovered."
@@ -266,6 +267,9 @@ admin:
   table_actions: "Actions"
   status_active: "active"
   status_disabled: "disabled"
+  status_expired: "expired"
+  # {date} is when the account stops working.
+  expires_note: "Account expires {date}"
   reissue_button: "New link"
   disable_button: "Disable"
   enable_button: "Enable"
@@ -375,6 +379,7 @@ api_keys:
   name_placeholder: "Bot-1"
   role_label: "Permission"
   role_user: "user"
+  role_viewer: "viewer (reads only)"
   role_admin: "admin (can manage accounts)"
   # Under the description, with a link to the API reference: api.json in
   # app.repo, or this server's own copy.

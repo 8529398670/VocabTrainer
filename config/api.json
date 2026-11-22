@@ -107,9 +107,17 @@
           "live": {
             "type": "boolean"
           },
+          "may_mint_keys": {
+            "description": "Whether this key may make keys for other accounts. Only the owner switches it on.",
+            "type": "boolean"
+          },
           "may_sign_in": {
             "description": "Whether this key may make a login link for its own account.",
             "type": "boolean"
+          },
+          "minted_by_key": {
+            "description": "The key that made this one, or empty. Revoking that key revokes this one.",
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -124,7 +132,8 @@
           "role": {
             "enum": [
               "admin",
-              "user"
+              "user",
+              "viewer"
             ],
             "type": "string"
           },
@@ -137,7 +146,9 @@
           "expired",
           "id",
           "live",
+          "may_mint_keys",
           "may_sign_in",
+          "minted_by_key",
           "name",
           "revoked",
           "role",
@@ -659,6 +670,11 @@
       "Me": {
         "properties": {
           "account_role": {
+            "enum": [
+              "admin",
+              "user",
+              "viewer"
+            ],
             "type": "string"
           },
           "announcement": {
@@ -689,6 +705,17 @@
           },
           "authenticated": {
             "type": "boolean"
+          },
+          "capabilities": {
+            "description": "The optional parts of that contract this app has on now: viewer_role, account_expiry, key_minting, invite_links, key_sign_in.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "contract": {
+            "description": "Which version of the portal contract this app speaks (ProjectPortal's CROSS_PROJECT.md).",
+            "type": "integer"
           },
           "csrf_token": {
             "description": "Browser sessions only.",
@@ -735,6 +762,11 @@
             "type": "string",
             "x-feature": "maintenance"
           },
+          "may_mint_keys": {
+            "description": "API keys only: whether this key may make keys for other accounts.",
+            "type": "boolean",
+            "x-feature": "api_keys"
+          },
           "openapi_url": {
             "description": "Where to read this API's reference: config/api.json in app.repo, or /api/api.json when there is no repo.",
             "type": "string",
@@ -745,7 +777,12 @@
             "type": "string"
           },
           "role": {
-            "description": "The effective role: never higher than an API key's own.",
+            "description": "The effective role: never higher than an API key's own. A viewer may read, and change nothing.",
+            "enum": [
+              "admin",
+              "user",
+              "viewer"
+            ],
             "type": "string"
           },
           "show_about": {
@@ -765,6 +802,8 @@
           "api_keys_enabled",
           "auth",
           "authenticated",
+          "capabilities",
+          "contract",
           "description",
           "display_name",
           "id",
@@ -834,9 +873,17 @@
           "live": {
             "type": "boolean"
           },
+          "may_mint_keys": {
+            "description": "Whether this key may make keys for other accounts. Only the owner switches it on.",
+            "type": "boolean"
+          },
           "may_sign_in": {
             "description": "Whether this key may make a login link for its own account.",
             "type": "boolean"
+          },
+          "minted_by_key": {
+            "description": "The key that made this one, or empty. Revoking that key revokes this one.",
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -851,7 +898,8 @@
           "role": {
             "enum": [
               "admin",
-              "user"
+              "user",
+              "viewer"
             ],
             "type": "string"
           },
@@ -865,7 +913,9 @@
           "expired",
           "id",
           "live",
+          "may_mint_keys",
           "may_sign_in",
+          "minted_by_key",
           "name",
           "revoked",
           "role",
@@ -1273,10 +1323,23 @@
             "type": "string"
           },
           "disabled": {
+            "description": "Switched off, or its expiry has passed.",
             "type": "boolean"
           },
           "display_name": {
             "type": "string"
+          },
+          "expired": {
+            "description": "Whether expires_at has passed.",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "description": "When the account stops working, or null for never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "id": {
             "type": "integer"
@@ -1298,7 +1361,8 @@
           "role": {
             "enum": [
               "admin",
-              "user"
+              "user",
+              "viewer"
             ],
             "type": "string"
           }
@@ -1307,6 +1371,8 @@
           "created_at",
           "disabled",
           "display_name",
+          "expired",
+          "expires_at",
           "id",
           "login_link",
           "owner",
@@ -2378,7 +2444,8 @@
                     "default": "user",
                     "enum": [
                       "admin",
-                      "user"
+                      "user",
+                      "viewer"
                     ],
                     "type": "string"
                   },
@@ -2789,6 +2856,7 @@
     },
     "/api/admin/keys/{key_id}/revoke": {
       "post": {
+        "description": "Stops the key at once, and every key it made, down the chain. Needs a browser session or a key with may_mint_keys (any other key gets 403 key_minting_off), which may not revoke the owner's keys.",
         "operationId": "post_api_admin_keys_key_id_revoke",
         "parameters": [
           {
@@ -2859,12 +2927,16 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "apiKey": []
           }
         ],
         "summary": "Revoke anyone's key",
         "tags": [
           "API keys"
         ],
+        "x-mcp-http": "Manages API keys, which no MCP tool does.",
         "x-required-role": "admin"
       },
       "x-feature": "api_keys"
@@ -2994,7 +3066,7 @@
         "x-required-role": "admin"
       },
       "post": {
-        "description": "Make a new account and its first login link, to hand to the person. role is admin or user. Answers with user_id and the link.",
+        "description": "Make a new account and its first login link, to hand to the person. role is admin, user or viewer (reads only). account_expires_at, when given, is when the account stops working. Answers with user_id and the link.",
         "operationId": "post_api_admin_users",
         "requestBody": {
           "content": {
@@ -3002,6 +3074,14 @@
               "schema": {
                 "additionalProperties": false,
                 "properties": {
+                  "account_expires_at": {
+                    "description": "When the account stops working (RFC 3339). Left out: never. expires_in_minutes is the login link's expiry, not this.",
+                    "format": "date-time",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "csrf_token": {
                     "description": "From GET /api/me. Browser sessions only.",
                     "type": "string"
@@ -3032,7 +3112,8 @@
                   "role": {
                     "enum": [
                       "admin",
-                      "user"
+                      "user",
+                      "viewer"
                     ],
                     "type": "string"
                   }
@@ -3398,6 +3479,288 @@
         "x-required-role": "admin"
       }
     },
+    "/api/admin/users/{user_id}/expiry": {
+      "post": {
+        "description": "expires_at is when the account stops working (RFC 3339), or null for never. Once it passes the account counts as disabled: sign-in, its sessions and its keys stop, and housekeeping disables it and revokes its access. A later expiry does not re-enable an account housekeeping already disabled. It must be in the future. The owner's account never expires; only the owner sets an admin's.",
+        "operationId": "post_api_admin_users_user_id_expiry",
+        "parameters": [
+          {
+            "description": "The account's id, from GET /api/admin/users (admin_list_users over MCP).",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "csrf_token": {
+                    "description": "From GET /api/me. Browser sessions only.",
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "description": "When the account stops working (RFC 3339), or null for never.",
+                    "format": "date-time",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "expires_at"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "expires_at": {
+                      "description": "null when it never expires.",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "expires_at",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "summary": "Set when an account expires",
+        "tags": [
+          "Admin"
+        ],
+        "x-required-role": "admin"
+      }
+    },
+    "/api/admin/users/{user_id}/keys": {
+      "get": {
+        "description": "One account's keys, revoked and expired ones included, newest first. Each row says which key minted it (minted_by_key, empty when a person made it). Needs a browser session or a key with may_mint_keys; any other key gets 403 key_minting_off.",
+        "operationId": "get_api_admin_users_user_id_keys",
+        "parameters": [
+          {
+            "description": "The account's id, from GET /api/admin/users (admin_list_users over MCP).",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "keys": {
+                      "items": {
+                        "$ref": "#/components/schemas/APIKey"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "summary": "An account's keys",
+        "tags": [
+          "API keys"
+        ],
+        "x-mcp-http": "Manages API keys, which no MCP tool does.",
+        "x-required-role": "admin"
+      },
+      "post": {
+        "description": "Needs a browser session or a key the owner allowed to make keys (may_mint_keys); any other key gets 403 key_minting_off. The role is capped at the account's own; expires_in_days is required (1-365). Never for the owner. The new key records the key that made it, can never make keys or sign-in links itself, and is revoked when that key is revoked or deleted. Answers with the key and its credential, shown only now.",
+        "operationId": "post_api_admin_users_user_id_keys",
+        "parameters": [
+          {
+            "description": "The account's id, from GET /api/admin/users (admin_list_users over MCP).",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "csrf_token": {
+                    "description": "From GET /api/me. Browser sessions only.",
+                    "type": "string"
+                  },
+                  "expires_in_days": {
+                    "description": "Required: 1-365. A minted key always expires.",
+                    "maximum": 365,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "Capped at the account's own role.",
+                    "enum": [
+                      "admin",
+                      "user",
+                      "viewer"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expires_in_days",
+                  "name",
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewAPIKey"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "summary": "Make a key for an account",
+        "tags": [
+          "API keys"
+        ],
+        "x-mcp-http": "Makes an API key, which no MCP tool does.",
+        "x-required-role": "admin"
+      },
+      "x-feature": "api_keys"
+    },
     "/api/admin/users/{user_id}/reissue-login": {
       "post": {
         "description": "For someone who lost their device or their link: a fresh login link for their account.",
@@ -3727,7 +4090,7 @@
     },
     "/api/admin/users/{user_id}/role": {
       "post": {
-        "description": "Make an account an admin or an ordinary user. Only the owner takes an admin's rights away; the owner is always an admin, and nobody changes their own role. Becoming an admin ends the account's sessions and live login link.",
+        "description": "Make an account an admin, an ordinary user, or a viewer, who may read but change nothing. Only the owner takes an admin's rights away; the owner is always an admin, and nobody changes their own role. Becoming an admin ends the account's sessions and live login link.",
         "operationId": "post_api_admin_users_user_id_role",
         "parameters": [
           {
@@ -3754,7 +4117,8 @@
                   "role": {
                     "enum": [
                       "admin",
-                      "user"
+                      "user",
+                      "viewer"
                     ],
                     "type": "string"
                   }
@@ -4604,7 +4968,8 @@
                         "role": {
                           "enum": [
                             "admin",
-                            "user"
+                            "user",
+                            "viewer"
                           ],
                           "type": "string"
                         },
@@ -4630,7 +4995,8 @@
                       "role": {
                         "enum": [
                           "admin",
-                          "user"
+                          "user",
+                          "viewer"
                         ],
                         "type": "string"
                       }
@@ -5599,7 +5965,8 @@
                     "default": "user",
                     "enum": [
                       "admin",
-                      "user"
+                      "user",
+                      "viewer"
                     ],
                     "type": "string"
                   }
@@ -5812,6 +6179,87 @@
           }
         ],
         "summary": "Change when one of your keys expires",
+        "tags": [
+          "API keys"
+        ]
+      },
+      "x-feature": "api_keys"
+    },
+    "/api/keys/{key_id}/mint-keys": {
+      "post": {
+        "description": "Owner only, on one of your own admin-role keys. When on, the key may make keys for other accounts (never the owner's) through POST /api/admin/users/{user_id}/keys, list them, and revoke them. Each key it makes records it, and revoking or deleting this key revokes them all.",
+        "operationId": "post_api_keys_key_id_mint_keys",
+        "parameters": [
+          {
+            "description": "The key's id, from GET /api/keys (GET /api/admin/keys for anyone's).",
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "csrf_token": {
+                    "description": "From GET /api/me. Browser sessions only.",
+                    "type": "string"
+                  },
+                  "may_mint_keys": {
+                    "description": "true lets this key make, list and revoke other accounts' keys, each recording this key and revoked with it.",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "may_mint_keys"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIKey"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          },
+          "503": {
+            "$ref": "#/components/responses/E503"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Let one of your keys make keys",
         "tags": [
           "API keys"
         ]
