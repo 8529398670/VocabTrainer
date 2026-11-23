@@ -288,6 +288,10 @@ func IssueLoginLink( store *db.Store , user_id uint64 , options LoginLinkOptions
 		target := &User{}
 		if tx_err = tx.Get( db.BucketUsers , encryption.Uint64ToBytes( user_id ) , target ); tx_err != nil { return }
 		if tx_err = mayActOnTx( tx , options.ActorID , target ); tx_err != nil { return }
+		if target.IsService() {
+			tx_err = ErrServiceAccount
+			return
+		}
 		if _ , tx_err = deletePendingLoginTokens( tx , user_id ); tx_err != nil { return }
 		tx_err = tx.Put( db.BucketLoginTokens , []byte( token_id ) , token )
 		return

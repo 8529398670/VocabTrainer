@@ -70,6 +70,21 @@ type Actor struct {
 	Method string `json:"method"`
 	// KeyID is the public half of an API key, never the secret.
 	KeyID string `json:"key_id,omitempty"`
+	// KeyName is that key's name, so the Logs screen can say which key.
+	KeyName string `json:"key_name,omitempty"`
+}
+
+// Fields are who acted, as an admin entry's detail and a webhook's actor
+// carry it (portal contract v3): actor_user_id, actor_name, and for a key,
+// actor_key_id and actor_key_name. Nil for nobody.
+func ( actor *Actor ) Fields() ( fields map[string]any ) {
+	if actor == nil || actor.UserID == 0 { return }
+	fields = map[string]any{ "actor_user_id": actor.UserID , "actor_name": actor.Name }
+	if actor.KeyID != "" {
+		fields[ "actor_key_id" ] = actor.KeyID
+		fields[ "actor_key_name" ] = actor.KeyName
+	}
+	return
 }
 
 type Request struct {

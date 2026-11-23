@@ -458,12 +458,14 @@ Redeem a login link
 | POST | [`/api/admin/users/{user_id}/keys`](#post-apiadminusersuser_idkeys) | Make a key for an account | browser session or API key, admins |
 | GET | [`/api/keys`](#get-apikeys) | Your API keys | browser session only, anyone signed in |
 | POST | [`/api/keys`](#post-apikeys) | Create an API key | browser session only, anyone signed in |
+| POST | [`/api/keys/self/rotate`](#post-apikeysselfrotate) | Rotate the calling key | API key only, anyone signed in |
 | POST | [`/api/keys/{key_id}/delete`](#post-apikeyskey_iddelete) | Delete one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/expiry`](#post-apikeyskey_idexpiry) | Change when one of your keys expires | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/mint-keys`](#post-apikeyskey_idmint-keys) | Let one of your keys make keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/rename`](#post-apikeyskey_idrename) | Rename one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/restore`](#post-apikeyskey_idrestore) | Undo deleting one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/revoke`](#post-apikeyskey_idrevoke) | Revoke one of your keys | browser session only, anyone signed in |
+| POST | [`/api/keys/{key_id}/rotate`](#post-apikeyskey_idrotate) | Rotate one of your keys | browser session only, anyone signed in |
 | POST | [`/api/keys/{key_id}/sign-in`](#post-apikeyskey_idsign-in) | Let one of your keys make sign-in links | browser session only, anyone signed in |
 
 ### GET /api/admin/keys
@@ -660,7 +662,7 @@ Stops the key at once, and every key it made, down the chain. Needs a browser se
 
 An account's keys
 
-One account's keys, revoked and expired ones included, newest first. Each row says which key minted it (minted_by_key, empty when a person made it). Needs a browser session or a key with may_mint_keys; any other key gets 403 key_minting_off.
+One account's keys, revoked and expired ones included, newest first. Each row says which key minted it (minted_by_key, empty when a person made it). Needs a browser session or a key with may_mint_keys; any other key gets 403 key_minting_off. Follows the owner ladder: nobody lists the owner's keys this way, and only the owner lists another admin's.
 
 |  |  |
 |---|---|
@@ -758,6 +760,27 @@ Create an API key
 **Reply 201**: Success
 
 [`NewAPIKey`](#newapikey).
+
+### POST /api/keys/self/rotate
+
+Rotate the calling key
+
+Gives the calling key a new secret and answers its new credential, shown only now. The old secret stops working at once. The key's id, name, role, grants, lineage and expiry stay as they are, so the keys and links it made keep working; rotating never extends the expiry. A viewer key may call it.
+
+|  |  |
+|---|---|
+| Who may call | API key only, anyone signed in |
+| Errors | 400, 401, 403, 404, 429, 503 |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+
+**Reply 200**: Success
+
+[`RotatedKey`](#rotatedkey).
 
 ### POST /api/keys/{key_id}/delete
 
@@ -921,6 +944,33 @@ Revoke one of your keys
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
 | `ok` | boolean | yes |  |  |
+
+### POST /api/keys/{key_id}/rotate
+
+Rotate one of your keys
+
+The owner only: gives one of the owner's own keys a new secret and answers its new credential, shown only now. The old secret stops working at once; nothing else about the key changes.
+
+|  |  |
+|---|---|
+| Who may call | browser session only, anyone signed in |
+| Errors | 400, 401, 403, 404, 429, 503 |
+
+**Parameters**
+
+| Name | In | Type | Required | Limits | Description |
+|---|---|---|---|---|---|
+| `key_id` | path | string | yes |  | The key's id, from GET /api/keys (GET /api/admin/keys for anyone's). |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+
+**Reply 200**: Success
+
+[`RotatedKey`](#rotatedkey).
 
 ### POST /api/keys/{key_id}/sign-in
 
@@ -1096,6 +1146,7 @@ Make a new account and its first login link, to hand to the person. role is admi
 | `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
 | `display_name` | string | yes | 1 to 80 characters |  |
 | `expires_in_minutes` | integer or null | no | 0 to 525600 | 0 never expires. Default auth.login_token_ttl_seconds for a link that works once, auth.multi_use_login_token_ttl_seconds otherwise. |
+| `kind` | string | no | one of `person`, `service`; default `person` | person, the default. service is refused (403 service_account): a service account is made by Connect on the owner's API keys screen. |
 | `max_uses` | integer or null | no | 0 to 1000 | Sign-ins the link allows: 1-1000, or 0 for unlimited. Default 1. |
 | `role` | string | yes | one of `admin`, `user`, `viewer` |  |
 
@@ -1204,7 +1255,7 @@ Switch an account off (disabled: true) or back on (false). Disabling signs it ou
 
 Set when an account expires
 
-expires_at is when the account stops working (RFC 3339), or null for never. Once it passes the account counts as disabled: sign-in, its sessions and its keys stop, and housekeeping disables it and revokes its access. A later expiry does not re-enable an account housekeeping already disabled. It must be in the future. The owner's account never expires; only the owner sets an admin's.
+expires_at is when the account stops working (RFC 3339), or null for never. Once it passes the account counts as disabled: sign-in, its sessions and its keys stop, and housekeeping disables it and revokes its access. A later expiry does not re-enable an account housekeeping already disabled. It must be in the future. The owner's account never expires, nobody sets their own, and only the owner sets an admin's.
 
 |  |  |
 |---|---|
@@ -1363,7 +1414,7 @@ Make an account an admin, an ordinary user, or a viewer, who may read but change
 
 An account's signed-in devices
 
-Where an account is signed in: every session, with when it started and was last seen. Addresses are shown to the owner only, and only the owner sees the owner's.
+Where an account is signed in: every session, with when it started and was last seen. Addresses are shown to the owner and service accounts only. Nobody sees the owner's, and only the owner sees another admin's.
 
 |  |  |
 |---|---|
@@ -1575,6 +1626,9 @@ Runs POST /api/admin/users/{user_id}/sessions/{session_id}/revoke once per item:
 | GET | [`/api/owner/logs/days/{date}/download`](#get-apiownerlogsdaysdatedownload) | One day's entries as a file | browser session only, the owner |
 | POST | [`/api/owner/logs/prune`](#post-apiownerlogsprune) | Apply the retention rules now | browser session only, the owner |
 | GET | [`/api/owner/logs/stream`](#get-apiownerlogsstream) | New log entries as they happen | browser session only, the owner |
+| GET | [`/api/owner/portal`](#get-apiownerportal) | ProjectPortal's accounts | browser session only, the owner |
+| POST | [`/api/owner/portal/connect`](#post-apiownerportalconnect) | Connect ProjectPortal | browser session only, the owner |
+| POST | [`/api/owner/portal/disconnect`](#post-apiownerportaldisconnect) | Disconnect ProjectPortal | browser session only, the owner |
 | GET | [`/api/owner/settings`](#get-apiownersettings) | config.yaml, as a form | browser session only, the owner |
 | POST | [`/api/owner/settings`](#post-apiownersettings) | Save settings | browser session only, the owner |
 
@@ -1744,6 +1798,71 @@ New log entries as they happen
 **Reply 200**: Success
 
 Text, as `text/event-stream`.
+
+### GET /api/owner/portal
+
+ProjectPortal's accounts
+
+The service accounts ProjectPortal works through, each with its live keys and when they expire.
+
+|  |  |
+|---|---|
+| Who may call | browser session only, the owner |
+| Errors | 404, 429, 503 |
+
+**Reply 200**: Success
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `accounts` | array of [`PortalAccount`](#portalaccount) | yes |  | Every service account, oldest first. |
+
+### POST /api/owner/portal/connect
+
+Connect ProjectPortal
+
+Makes the service account named name (ProjectPortal when left out) if there is none, and one admin key for it, lasting days (1-365), that may make keys for other accounts and never makes sign-in links. Answers with the key and its credential, shown only now: paste it into ProjectPortal as this app's admin key.
+
+|  |  |
+|---|---|
+| Who may call | browser session only, the owner |
+| Errors | 400, 403, 404, 429, 503 |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+| `days` | integer | yes | 1 to 365 | How long the key lasts, in days. |
+| `name` | string | no | 1 to 80 characters; default `ProjectPortal` | The service account's name. Left out: ProjectPortal. |
+
+**Reply 201**: Success
+
+[`NewAPIKey`](#newapikey).
+
+### POST /api/owner/portal/disconnect
+
+Disconnect ProjectPortal
+
+Revokes every key of the service account user_id, and with them every key and link those keys made. The account stays, with no way in, until Connect gives it a key again.
+
+|  |  |
+|---|---|
+| Who may call | browser session only, the owner |
+| Errors | 400, 403, 404, 429, 503 |
+
+**Request body**
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `csrf_token` | string | no |  | From GET /api/me. Browser sessions only. |
+| `user_id` | integer | yes |  | The service account. |
+
+**Reply 200**: Success
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `ok` | boolean | yes |  |  |
+| `revoked` | integer | yes |  | Its keys revoked. The keys and links they made went with them. |
 
 ### GET /api/owner/settings
 
@@ -2321,7 +2440,9 @@ The shapes the routes above refer to by name.
 
 | Field | Type | Required | Limits | Description |
 |---|---|---|---|---|
+| `code` | string | no | one of `not_authenticated`, `not_admin`, `view_only`, `session_only`, `owner_required`, `owner_protected`, `key_minting_off`, `service_account`, `not_found`, `invalid`, `conflict`, `rate_limited`, `forbidden` | On a 4xx: why, for a program to branch on (error is for a person). The list is closed. |
 | `error` | string | yes |  |  |
+| `field` | string | no |  | On a 400 about one field: its name. |
 | `request_id` | string | no |  | On a 5xx: the reference that finds this failure in the log. |
 
 ### Invite
@@ -2403,23 +2524,39 @@ The shapes the routes above refer to by name.
 | `api_keys_enabled` | boolean | yes |  |  |
 | `auth` | string | yes |  |  |
 | `authenticated` | boolean | yes |  |  |
-| `capabilities` | array of string | yes |  | The optional parts of that contract this app has on now: viewer_role, account_expiry, key_minting, invite_links, key_sign_in. |
-| `contract` | integer | yes |  | Which version of the portal contract this app speaks (ProjectPortal's CROSS_PROJECT.md). |
+| `capabilities` | array of string | yes |  | The optional parts of that contract this app has on now: viewer_role, account_expiry, key_minting, invite_links, key_sign_in, service_accounts, key_grants, error_codes, key_rotation, admin_sessions. |
+| `contract` | integer | yes |  | Which version of the portal contract this app speaks: the Portal contract section of the webserver skills' SKILL.md. |
 | `csrf_token` | string | no |  | Browser sessions only. |
 | `description` | string | yes |  | app.description. Empty when there is none. |
 | `display_name` | string | yes |  |  |
 | `id` | integer | yes |  |  |
 | `is_owner` | boolean | yes |  |  |
+| `key` | [`MeKey`](#mekey) | no |  | API keys only: what this key may do. |
+| `kind` | string | yes | one of `person`, `service` | person, or service for an account that only has API keys and is never signed into (ProjectPortal's own). |
 | `login_link` | [`LoginLink`](#loginlink) or null | yes |  | Your own live login link, or null. |
 | `logs_enabled` | boolean | yes |  |  |
 | `logs_ui_clicks` | boolean | yes |  |  |
 | `maintenance` | string | yes | one of `none`, `read_only`, `full` |  |
 | `may_mint_keys` | boolean | no |  | API keys only: whether this key may make keys for other accounts. |
 | `openapi_url` | string | yes |  | Where to read this API's reference: config/api.json in app.repo, or /api/api.json when there is no repo. |
+| `owner` | boolean | yes |  | Whether this is the owner's account: the same as is_owner, under portal contract v3's name. |
 | `repo` | string | yes |  | app.repo without a trailing / or .git: where the source lives. Empty when it is not set. |
 | `role` | string | yes | one of `admin`, `user`, `viewer` | The effective role: never higher than an API key's own. A viewer may read, and change nothing. |
 | `show_about` | boolean | yes |  | app.show_about: whether the menu has About. |
+| `skill` | string | no |  | The webserver skill this app was scaffolded from (go-webserver or python-webserver), from its .skill-origin.yaml. Absent when that is not known. |
+| `skill_commit` | string | no |  | The skill's commit this app was scaffolded from or last upgraded to, from its .skill-origin.yaml. Absent when that is not known. |
 | `version` | string | yes |  | The running build. dev when none was stamped. |
+
+### MeKey
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `expires_at` | string (date-time) | no |  | When the key stops working. Absent when it never does. |
+| `id` | string | yes |  |  |
+| `may_mint_keys` | boolean | yes |  | Whether this key may make keys for other accounts. |
+| `may_sign_in` | boolean | yes |  | Whether this key may make a login link for its own account. |
+| `name` | string | yes |  |  |
+| `role` | string | yes | one of `admin`, `user`, `viewer` | The key's own role. The role it acts with is the lower of this and the account's. |
 
 ### Member
 
@@ -2451,6 +2588,14 @@ The shapes the routes above refer to by name.
 | `role` | string | yes | one of `admin`, `user`, `viewer` |  |
 | `user_id` | integer | yes |  |  |
 
+### PortalAccount
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `display_name` | string | yes |  |  |
+| `id` | integer | yes |  |  |
+| `keys` | array of [`APIKey`](#apikey) | yes |  | Its live keys, newest first. |
+
 ### PruneResult
 
 | Field | Type | Required | Limits | Description |
@@ -2467,6 +2612,12 @@ The shapes the routes above refer to by name.
 | `api_keys` | integer | yes |  |  |
 | `login_links` | integer | yes |  |  |
 | `sessions` | integer | yes |  |  |
+
+### RotatedKey
+
+| Field | Type | Required | Limits | Description |
+|---|---|---|---|---|
+| `credential` | string | yes |  | The key's new credential, shown in this response only. The old one stopped working. |
 
 ### Session
 
@@ -2574,6 +2725,7 @@ One of these:
 | `expired` | boolean | yes |  | Whether expires_at has passed. |
 | `expires_at` | string (date-time) or null | yes |  | When the account stops working, or null for never. |
 | `id` | integer | yes |  |  |
+| `kind` | string | yes | one of `person`, `service` | person, or service for an account with API keys only (ProjectPortal's own). |
 | `login_link` | [`LoginLink`](#loginlink) or null | yes |  | The account's live login link, or null. |
 | `owner` | boolean | yes |  |  |
 | `role` | string | yes | one of `admin`, `user`, `viewer` |  |

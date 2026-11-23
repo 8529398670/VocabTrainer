@@ -225,6 +225,12 @@ func ( client *Client ) CreateAPIKey( user_id uint64 , name string , role string
 	return
 }
 
+// PortalConnect is `manage portal-connect` over the socket.
+func ( client *Client ) PortalConnect( name string , days int ) ( key APIKeyResponse , err error ) {
+	err = client.do( http.MethodPost , "/v1/portal-connect" , PortalConnectRequest{ Name: name , Days: days } , &key )
+	return
+}
+
 func ( client *Client ) RevokeAPIKey( key_id string ) ( key APIKeyResponse , err error ) {
 	err = client.do( http.MethodPost , fmt.Sprintf( "/v1/api-keys/%s/revoke" , key_id ) , nil , &key )
 	return

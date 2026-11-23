@@ -21,15 +21,24 @@ PID_FILE="${RUN_DIR}/server.pid"
 # debugging, not shipping. The version is the UTC build time
 # (2026.10.23-1412): it sorts, it says when, and the commit hash is stamped
 # separately alongside it.
+# read_skill_origin sets SKILL and SKILL_COMMIT from .skill-origin.yaml, the
+# skill and commit this app was scaffolded from (or last upgraded to), for
+# /api/me. Both empty without the file.
+read_skill_origin() {
+  SKILL="$( sed -n 's/^skill:[[:space:]]*//p' .skill-origin.yaml 2>/dev/null | head -n 1 | tr -d "\"' \r" )"
+  SKILL_COMMIT="$( sed -n 's/^commit:[[:space:]]*//p' .skill-origin.yaml 2>/dev/null | head -n 1 | tr -d "\"' \r" )"
+}
+
 build_binary() {
   VERSION="$( date -u +%Y.%m.%d-%H%M )"
   COMMIT="$( git rev-parse --short HEAD 2>/dev/null || echo "unknown" )"
+  read_skill_origin
   if ! command -v go >/dev/null 2>&1; then
     echo "ERROR: go is not on PATH. Install Go (https://go.dev/dl/) and re-run." >&2
     exit 1
   fi
   if ! go build -buildvcs=false -trimpath \
-         -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}" \
+         -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.skill=${SKILL} -X main.skillCommit=${SKILL_COMMIT}" \
          -o "$BINARY" .; then
     echo "" >&2
     echo "ERROR: the build failed (above). Nothing was stopped or started." >&2

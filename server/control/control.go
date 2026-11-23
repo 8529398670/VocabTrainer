@@ -232,6 +232,7 @@ func ( server *Server ) routes() ( handler http.Handler ) {
 	mux.HandleFunc( "POST /v1/owner" , server.handleTransferOwner )
 	mux.HandleFunc( "GET /v1/api-keys" , server.handleListAPIKeys )
 	mux.HandleFunc( "POST /v1/api-keys" , server.handleCreateAPIKey )
+	mux.HandleFunc( "POST /v1/portal-connect" , server.handlePortalConnect )
 	mux.HandleFunc( "POST /v1/api-keys/{id}/revoke" , server.handleRevokeAPIKey )
 	mux.HandleFunc( "POST /v1/api-keys/{id}/delete" , server.handleDeleteAPIKey )
 	mux.HandleFunc( "POST /v1/backup" , server.handleBackup )
@@ -534,6 +535,35 @@ func ( server *Server ) handleListAPIKeys( w http.ResponseWriter , r *http.Reque
 		out = append( out , apiKeyResponse( key , names[ key.UserID ] , "" ) )
 	}
 	writeJSON( w , http.StatusOK , out )
+}
+
+// PortalConnectRequest is the body of POST /v1/portal-connect.
+type PortalConnectRequest struct {
+	Name string `json:"name"`
+	Days int    `json:"days"`
+}
+
+// handlePortalConnect is `manage portal-connect`: the owner's Connect on the
+// API keys screen, for an install with no browser at hand. The shell is the
+// owner's say-so (models.ConnectPortal, actor 0).
+func ( server *Server ) handlePortalConnect( w http.ResponseWriter , r *http.Request ) {
+	if server.cfg().APIKeysEnabled == false {
+		writeError( w , http.StatusForbidden , "api keys are disabled on this server (auth.api_keys: false)" )
+		return
+	}
+	body := PortalConnectRequest{}
+	if decodeBody( w , r , &body ) == false { return }
+	if body.Name == "" { body.Name = models.DefaultPortalName }
+	if body.Days < 1 || body.Days > 365 {
+		writeError( w , http.StatusBadRequest , "days must be 1-365" )
+		return
+	}
+	credential , key , user , err := models.ConnectPortal( server.store , 0 , body.Name , time.Duration( body.Days ) * 24 * time.Hour )
+	if err != nil {
+		writeError( w , http.StatusBadRequest , err.Error() )
+		return
+	}
+	writeJSON( w , http.StatusCreated , apiKeyResponse( key , user.DisplayName , credential ) )
 }
 
 // handleCreateAPIKey mints a key on someone's behalf -- the CLI's way to hand

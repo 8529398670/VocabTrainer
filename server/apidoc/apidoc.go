@@ -207,6 +207,8 @@ var errorMeanings = map[int]string{
 // ErrorReply is the body of every error.
 type ErrorReply struct {
 	Error     string `json:"error"`
+	Code      string `json:"code,omitempty" jsonschema:"enum=not_authenticated,enum=not_admin,enum=view_only,enum=session_only,enum=owner_required,enum=owner_protected,enum=key_minting_off,enum=service_account,enum=not_found,enum=invalid,enum=conflict,enum=rate_limited,enum=forbidden" jsonschema_description:"On a 4xx: why, for a program to branch on (error is for a person). The list is closed."`
+	Field     string `json:"field,omitempty" jsonschema_description:"On a 400 about one field: its name."`
 	RequestID string `json:"request_id,omitempty" jsonschema_description:"On a 5xx: the reference that finds this failure in the log."`
 }
 

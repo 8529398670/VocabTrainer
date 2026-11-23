@@ -77,6 +77,9 @@ var (
 	ErrAPIKeyRole     = errors.New( "an API key cannot be given a role its owner does not have" )
 	ErrAPIKeyDisabled = errors.New( "cannot issue an API key for a disabled account" )
 	ErrAPIKeyDead     = errors.New( "only a live API key can have its expiry changed" )
+	// ErrParentKeyDead is making a key through a key (MintedByKey) that no
+	// longer works: what it would make would already be dead.
+	ErrParentKeyDead  = errors.New( "the API key this request answers to no longer works" )
 	ErrAPIKeyNotYours = errors.New( "only the account a key acts as may let it make sign-in links" )
 	ErrAPIKeyMinted   = errors.New( "a minted key can never make sign-in links" )
 	ErrAPIKeyMintsNot = errors.New( "a minted key can never mint keys" )
@@ -200,12 +203,16 @@ func IssueAPIKey( store *db.Store , user_id uint64 , name string , role string ,
 //
 // Your own account is simply your own key. The rules are checked inside the
 // issuing transaction, so ownership cannot move between the check and the key.
-func IssueAPIKeyFor( store *db.Store , actor_id uint64 , user_id uint64 , name string , role string , ttl time.Duration ) ( credential string , key *APIKey , err error ) {
-	if actor_id == user_id {
-		credential , key , err = IssueAPIKey( store , user_id , name , role , ttl )
-		return
-	}
-	credential , key , err = issueAPIKey( store , user_id , name , role , ttl , actor_id , "" , false )
+//
+// lineage_key is the key the asking session answers to (security.Actor's
+// LineageKey): empty for a session someone signed in to themselves, the key
+// for one a key's login link opened. The new key records it as MintedByKey,
+// so revoking that key revokes this one, and it cannot outlive that key's
+// expiry -- a key that signs a browser in must not leave a key behind.
+func IssueAPIKeyFor( store *db.Store , actor_id uint64 , lineage_key string , user_id uint64 , name string , role string , ttl time.Duration ) ( credential string , key *APIKey , err error ) {
+	created_by := actor_id
+	if created_by == user_id { created_by = 0 }
+	credential , key , err = issueAPIKey( store , user_id , name , role , ttl , created_by , lineage_key , false )
 	return
 }
 
@@ -224,6 +231,43 @@ func MintAPIKey( store *db.Store , actor_id uint64 , minted_by_key string , user
 	created_by := actor_id
 	if created_by == user_id { created_by = 0 }
 	credential , key , err = issueAPIKey( store , user_id , name , role , ttl , created_by , minted_by_key , true )
+	return
+}
+
+// keyBornSessionDead is true for a session a key's login link opened
+// (Session.MintedByKey) once that key no longer works. Revoking or deleting
+// the key already deletes such sessions (VoidLinksMintedByKeyTx); this is the
+// same for its expiry, which nothing runs at, so a key that expires cannot
+// leave a browser signed in behind it.
+func keyBornSessionDead( store *db.Store , session *Session ) ( dead bool ) {
+	if session.MintedByKey == "" { return }
+	key := &APIKey{}
+	dead = store.Get( db.BucketAPIKeys , []byte( session.MintedByKey ) , key ) != nil || key.Live() == false
+	return
+}
+
+// capAtParentTx keeps a key made by another key (MintedByKey) from outliving
+// it: its expiry is brought forward to the parent's when the parent's comes
+// first, or when it would never expire and the parent will. Revoking the parent
+// already ends it (VoidLinksMintedByKeyTx); this is the same promise for the
+// parent's expiry, so a 30-day key cannot leave a 365-day one behind. A parent
+// that is gone or no longer live is ErrParentKeyDead.
+func capAtParentTx( tx *db.Tx , key *APIKey ) ( err error ) {
+	if key.MintedByKey == "" { return }
+	parent := &APIKey{}
+	if err = tx.Get( db.BucketAPIKeys , []byte( key.MintedByKey ) , parent ); err != nil {
+		if errors.Is( err , db.ErrNotFound ) { err = ErrParentKeyDead }
+		return
+	}
+	if parent.Live() == false {
+		err = ErrParentKeyDead
+		return
+	}
+	if parent.ExpiresAt == nil { return }
+	if key.ExpiresAt == nil || key.ExpiresAt.After( *parent.ExpiresAt ) {
+		capped := *parent.ExpiresAt
+		key.ExpiresAt = &capped
+	}
 	return
 }
 
@@ -266,6 +310,7 @@ func issueAPIKey( store *db.Store , user_id uint64 , name string , role string ,
 	err = store.Write( func( tx *db.Tx ) ( tx_err error ) {
 		owner := &User{}
 		if tx_err = tx.Get( db.BucketUsers , encryption.Uint64ToBytes( user_id ) , owner ); tx_err != nil { return }
+		if tx_err = capAtParentTx( tx , key ); tx_err != nil { return }
 		if mint {
 			if tx_err = refuseOwnerTx( tx , user_id ); tx_err != nil { return }
 			key.Role = LowerRole( key.Role , owner.Role )
@@ -544,6 +589,12 @@ func SetAPIKeySignIn( store *db.Store , key_id string , user_id uint64 , on bool
 			tx_err = ErrAPIKeyMinted
 			return
 		}
+		account := &User{}
+		if tx_err = tx.Get( db.BucketUsers , encryption.Uint64ToBytes( stored.UserID ) , account ); tx_err != nil { return }
+		if on && account.IsService() {
+			tx_err = ErrServiceAccount
+			return
+		}
 		if on && stored.Live() == false {
 			tx_err = ErrAPIKeyDead
 			return
@@ -579,7 +630,11 @@ func SetAPIKeyMinting( store *db.Store , key_id string , actor_id uint64 , on bo
 			tx_err = db.ErrNotFound
 			return
 		}
-		if stored.UserID != actor_id {
+		// The owner's own keys, or a service account's (ProjectPortal's,
+		// whose keys only the owner runs).
+		account := &User{}
+		if tx_err = tx.Get( db.BucketUsers , encryption.Uint64ToBytes( stored.UserID ) , account ); tx_err != nil { return }
+		if stored.UserID != actor_id && account.IsService() == false {
 			tx_err = ErrAPIKeyNotYours
 			return
 		}
@@ -668,6 +723,7 @@ func SetAPIKeyExpiry( store *db.Store , key_id string , actor_id uint64 , ttl ti
 			expires := time.Now().UTC().Add( ttl )
 			stored.ExpiresAt = &expires
 		}
+		if tx_err = capAtParentTx( tx , stored ); tx_err != nil { return }
 		if tx_err = tx.Put( db.BucketAPIKeys , []byte( key_id ) , stored ); tx_err != nil { return }
 		key = stored
 		return
@@ -779,5 +835,31 @@ func PurgeDeadAPIKeys( store *db.Store ) ( removed int , err error ) {
 			}
 			return stored.ExpiresAt != nil && stored.ExpiresAt.Before( cutoff )
 		} )
+	return
+}
+
+// ErrAPIKeyRotateDead is the refusal for rotating a key that no longer works.
+var ErrAPIKeyRotateDead = errors.New( "only a live API key can be rotated" )
+
+// RotateAPIKey gives a key a new secret and answers its new credential. The
+// old secret stops working at once. Everything else stays -- id, name, role,
+// grants, lineage, and expires_at, which rotation never extends -- so the keys
+// and links it made keep working, and a leaked key that rotates itself still
+// dies on schedule. ErrAPIKeyRotateDead for a key that is not live.
+func RotateAPIKey( store *db.Store , key_id string ) ( credential string , key *APIKey , err error ) {
+	secret := encryption.GenerateURLToken( 32 )
+	err = store.Write( func( tx *db.Tx ) ( tx_err error ) {
+		stored := &APIKey{}
+		if tx_err = tx.Get( db.BucketAPIKeys , []byte( key_id ) , stored ); tx_err != nil { return }
+		if stored.Deleted() || stored.Live() == false {
+			tx_err = ErrAPIKeyRotateDead
+			return
+		}
+		stored.SecretHash = encryption.Sha256Hex( secret )
+		if tx_err = tx.Put( db.BucketAPIKeys , []byte( key_id ) , stored ); tx_err != nil { return }
+		key = stored
+		return
+	} )
+	if err == nil { credential = key_id + "." + secret }
 	return
 }

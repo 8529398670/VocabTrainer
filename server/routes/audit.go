@@ -27,7 +27,16 @@ func ( handlers *Handlers ) logUser( user_id uint64 , method string ) ( actor *l
 // audit logs an auth or admin action by whoever made this request. detail
 // says what it touched: ids and names, never a credential.
 func ( handlers *Handlers ) audit( c fiber.Ctx , kind string , message string , detail fiber.Map ) {
-	handlers.auditAs( c , security.LogActor( security.ActorFrom( c ) ) , kind , logs.LevelInfo , message , detail )
+	actor := security.LogActor( security.ActorFrom( c ) )
+	// Who did it, in the entry's own detail too (portal contract v3): an
+	// admin action by ProjectPortal's key says so wherever the entry goes.
+	if fields := actor.Fields(); fields != nil {
+		merged := fiber.Map{}
+		for name , value := range detail { merged[ name ] = value }
+		for name , value := range fields { merged[ name ] = value }
+		detail = merged
+	}
+	handlers.auditAs( c , actor , kind , logs.LevelInfo , message , detail )
 }
 
 // auditAs is audit for a request whose actor is not the signed-in one: a
@@ -44,4 +53,12 @@ func ( handlers *Handlers ) auditAs( c fiber.Ctx , actor *logs.Actor , kind stri
 		Msg:    message,
 		Detail: detail,
 	} )
+}
+
+// webhookActor is who made this request, as a webhook's payload carries it
+// ("actor", portal contract v3): logs.Actor.Fields. Nil for nobody, and in a
+// project without the activity log, where those fields come from.
+func webhookActor( c fiber.Ctx ) ( actor map[string]any ) {
+	actor = security.LogActor( security.ActorFrom( c ) ).Fields()
+	return
 }

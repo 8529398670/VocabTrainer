@@ -26,6 +26,8 @@ COPY . .
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG SKILL=
+ARG SKILL_COMMIT=
 
 # One binary. The frontend is compiled into it by go:embed (see main.go),
 # and account administration is the "manage" subcommand -- so the image needs
@@ -37,7 +39,7 @@ ARG BUILD_DATE=unknown
 # /tmp. That is what replaces setting them through ENV, and it is why
 # `docker exec <name> /app/server manage ...` needs nothing extra.
 RUN CGO_ENABLED=0 GOOS=linux go build -tags container -trimpath \
-      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE} -X main.skill=${SKILL} -X main.skillCommit=${SKILL_COMMIT}" \
       -o /out/server .
 
 # --- runtime stage ---------------------------------------------------------

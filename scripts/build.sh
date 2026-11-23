@@ -76,6 +76,11 @@ LDFLAGS="-s -w"
 LDFLAGS="$LDFLAGS -X main.version=${VERSION}"
 LDFLAGS="$LDFLAGS -X main.commit=${COMMIT}"
 LDFLAGS="$LDFLAGS -X main.buildDate=${BUILD_DATE}"
+# The skill and commit this app was scaffolded from, for /api/me. Empty
+# without .skill-origin.yaml (scripts/lib.sh read_skill_origin does the same).
+SKILL="$( sed -n 's/^skill:[[:space:]]*//p' .skill-origin.yaml 2>/dev/null | head -n 1 | tr -d "\"' \r" )"
+SKILL_COMMIT="$( sed -n 's/^commit:[[:space:]]*//p' .skill-origin.yaml 2>/dev/null | head -n 1 | tr -d "\"' \r" )"
+LDFLAGS="$LDFLAGS -X main.skill=${SKILL} -X main.skillCommit=${SKILL_COMMIT}"
 
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_ABS="$( cd "$OUTPUT_DIR" && pwd )"

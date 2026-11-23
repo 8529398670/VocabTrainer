@@ -37,6 +37,8 @@ const App = {
     } );
 
     await Keys.init( me );
+    // The ProjectPortal card: the owner's only, and portal.js checks that.
+    await Portal.init( me );
 
     if ( me.role !== "admin" ) return;
 
@@ -280,7 +282,7 @@ const App = {
       body.appendChild( Dom.el( "tr" , { children: [
         Dom.el( "td" , { text: user.display_name } ),
         Dom.el( "td" , { text: user.role } ),
-        Dom.el( "td" , { text: I18n.get( statusKey ) } ),
+        Dom.el( "td" , { text: I18n.get( statusKey ) + ( user.kind === "service" ? " · " + I18n.get( "admin.service_badge" ) : "" ) } ),
         Dom.el( "td" , { children: [
           Dom.el( "div" , { class: "row-actions" , children: [ reissueButton , toggleButton ] } ),
         ] } ),

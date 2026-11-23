@@ -2,6 +2,7 @@ package routes
 
 import (
 	errors "errors"
+	time "time"
 
 	fiber "github.com/gofiber/fiber/v3"
 
@@ -19,10 +20,12 @@ type meReply struct {
 	DisplayName        string                `json:"display_name"`
 	Role               string                `json:"role" jsonschema:"enum=admin,enum=user,enum=viewer" jsonschema_description:"The effective role: never higher than an API key's own. A viewer may read, and change nothing."`
 	AccountRole        string                `json:"account_role" jsonschema:"enum=admin,enum=user,enum=viewer"`
-	Contract           int                   `json:"contract" jsonschema_description:"Which version of the portal contract this app speaks (ProjectPortal's CROSS_PROJECT.md)."`
-	Capabilities       []string              `json:"capabilities" jsonschema_description:"The optional parts of that contract this app has on now: viewer_role, account_expiry, key_minting, invite_links, key_sign_in."`
+	Contract           int                   `json:"contract" jsonschema_description:"Which version of the portal contract this app speaks: the Portal contract section of the webserver skills' SKILL.md."`
+	Capabilities       []string              `json:"capabilities" jsonschema_description:"The optional parts of that contract this app has on now: viewer_role, account_expiry, key_minting, invite_links, key_sign_in, service_accounts, key_grants, error_codes, key_rotation, admin_sessions."`
 	MayMintKeys        bool                  `json:"may_mint_keys,omitempty" jsonschema_description:"API keys only: whether this key may make keys for other accounts." jsonschema_extras:"x-feature=api_keys"`
 	IsOwner            bool                  `json:"is_owner"`
+	Owner              bool                  `json:"owner" jsonschema_description:"Whether this is the owner's account: the same as is_owner, under portal contract v3's name."`
+	Kind               string                `json:"kind" jsonschema:"enum=person,enum=service" jsonschema_description:"person, or service for an account that only has API keys and is never signed into (ProjectPortal's own)."`
 	Maintenance        string                `json:"maintenance" jsonschema:"enum=none,enum=read_only,enum=full" jsonschema_extras:"x-feature=maintenance"`
 	Auth               string                `json:"auth"`
 	APIKeysEnabled     bool                  `json:"api_keys_enabled" jsonschema_extras:"x-feature=api_keys"`
@@ -31,7 +34,10 @@ type meReply struct {
 	CSRFToken          string                `json:"csrf_token,omitempty" jsonschema_description:"Browser sessions only."`
 	APIKeyID           string                `json:"api_key_id,omitempty" jsonschema_description:"API keys only." jsonschema_extras:"x-feature=api_keys"`
 	APIKeyName         string                `json:"api_key_name,omitempty" jsonschema_description:"API keys only." jsonschema_extras:"x-feature=api_keys"`
+	Key                meKey                 `json:"key,omitzero" jsonschema_description:"API keys only: what this key may do." jsonschema_extras:"x-feature=api_keys"`
 	Version            string                `json:"version" jsonschema_description:"The running build. dev when none was stamped."`
+	Skill              string                `json:"skill,omitempty" jsonschema_description:"The webserver skill this app was scaffolded from (go-webserver or python-webserver), from its .skill-origin.yaml. Absent when that is not known."`
+	SkillCommit        string                `json:"skill_commit,omitempty" jsonschema_description:"The skill's commit this app was scaffolded from or last upgraded to, from its .skill-origin.yaml. Absent when that is not known."`
 	Announcement       string                `json:"announcement" jsonschema_description:"server.announcement. Empty when there is none."`
 	Repo               string                `json:"repo" jsonschema_description:"app.repo without a trailing / or .git: where the source lives. Empty when it is not set."`
 	Description        string                `json:"description" jsonschema_description:"app.description. Empty when there is none."`
@@ -42,6 +48,19 @@ type meReply struct {
 }
 
 func ( meReply ) APIName() ( name string ) { name = "Me"; return }
+
+// meKey is what /api/me says about the calling key, so an outside tool knows
+// before it clicks whether the key can make keys, and when it stops working.
+type meKey struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Role        string    `json:"role" jsonschema:"enum=admin,enum=user,enum=viewer" jsonschema_description:"The key's own role. The role it acts with is the lower of this and the account's."`
+	MayMintKeys bool      `json:"may_mint_keys" jsonschema_description:"Whether this key may make keys for other accounts."`
+	MaySignIn   bool      `json:"may_sign_in" jsonschema_description:"Whether this key may make a login link for its own account."`
+	ExpiresAt   time.Time `json:"expires_at,omitzero" jsonschema_description:"When the key stops working. Absent when it never does."`
+}
+
+func ( meKey ) APIName() ( name string ) { name = "MeKey"; return }
 
 // getMe is the frontend's first call on every page load: it answers "who am
 // I, what may I do, and what CSRF token do I echo back". Handing the token
@@ -81,9 +100,13 @@ func ( handlers *Handlers ) getMe( c fiber.Ctx , in *apidoc.None ) ( reply *meRe
 		Contract:           portalContract,
 		Capabilities:       handlers.capabilities(),
 		IsOwner:            user.ID == owner_id,
+		Owner:              user.ID == owner_id,
+		Kind:               user.KindOrPerson(),
 		LoginLink:          login_link,
 		Maintenance:        cfg.MaintenanceMode(),
 		Version:            handlers.Version,
+		Skill:              handlers.Skill,
+		SkillCommit:        handlers.SkillCommit,
 		Announcement:       cfg.Announcement,
 		Repo:               cfg.Repo,
 		Description:        cfg.Description,
@@ -106,14 +129,17 @@ func ( handlers *Handlers ) getMe( c fiber.Ctx , in *apidoc.None ) ( reply *meRe
 		reply.APIKeyID = actor.APIKey.ID
 		reply.APIKeyName = actor.APIKey.Name
 		reply.MayMintKeys = actor.APIKey.MayMintKeys
+		reply.Key = meKey{ ID: actor.APIKey.ID , Name: actor.APIKey.Name , Role: actor.APIKey.Role , MayMintKeys: actor.APIKey.MayMintKeys , MaySignIn: actor.APIKey.MaySignIn }
+		if actor.APIKey.ExpiresAt != nil { reply.Key.ExpiresAt = actor.APIKey.ExpiresAt.UTC() }
 	}
 	return
 }
 
 // portalContract is the version of ProjectPortal's contract this app
-// speaks: what it may call from outside, field for field (its CROSS_PROJECT.md,
-// "Portal contract v2"). The webserver-upgrade skill's status reads it.
-const portalContract = 2
+// speaks: what it may call from outside, field for field (the "Portal
+// contract" section of the go-webserver skill's SKILL.md, which ProjectPortal's
+// CROSS_PROJECT.md points at). The webserver-upgrade skill's status reads it.
+const portalContract = 3
 
 // capabilities are the optional parts of that contract this app has on right
 // now. The portal turns each one on only when it is listed here.
@@ -127,6 +153,11 @@ func ( handlers *Handlers ) capabilities() ( result []string ) {
 	result = append( result , "account_expiry" )
 	if keys { result = append( result , "key_minting" ) }
 	if keys { result = append( result , "key_sign_in" ) }
+	if keys { result = append( result , "service_accounts" ) }
+	if keys { result = append( result , "key_grants" ) }
+	result = append( result , "error_codes" )
+	if keys { result = append( result , "key_rotation" ) }
+	result = append( result , "admin_sessions" )
 	return
 }
 

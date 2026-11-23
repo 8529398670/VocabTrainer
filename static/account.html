@@ -119,6 +119,36 @@
         </div>
       </div>
 
+      <!-- ProjectPortal's own account (portal.js): the owner's only. -->
+      <div class="card" id="portal-card" hidden>
+        <h2 data-i18n="portal.heading"></h2>
+        <p class="muted" data-i18n="portal.description"></p>
+
+        <form id="portal-connect-form" autocomplete="off">
+          <div class="field">
+            <label for="portal-name" data-i18n="portal.name_label"></label>
+            <input id="portal-name" name="name" maxlength="80" value="ProjectPortal" required />
+          </div>
+          <div class="field">
+            <label for="portal-days" data-i18n="portal.days_label"></label>
+            <input id="portal-days" name="days" type="number" min="1" max="365" value="365" inputmode="numeric" required />
+          </div>
+          <button type="submit" data-i18n="portal.connect_button"></button>
+        </form>
+
+        <div id="portal-key-box" class="notice notice-link" hidden>
+          <p data-i18n="api_keys.secret_notice"></p>
+          <code id="portal-key-value"></code>
+          <button type="button" id="copy-portal-key-button" class="secondary" data-i18n="api_keys.copy_button"></button>
+          <span id="portal-key-copied" class="muted" data-i18n="admin.copied_notice" hidden></span>
+          <p data-i18n="portal.paste_hint"></p>
+        </div>
+
+        <h2 data-i18n="portal.status_heading"></h2>
+        <ul id="portal-status"></ul>
+        <button type="button" id="portal-disconnect-button" class="secondary" data-i18n="portal.disconnect_button" hidden></button>
+      </div>
+
       <div class="card" id="admin-panel" hidden>
         <h2 data-i18n="admin.heading"></h2>
         <p class="muted" data-i18n="admin.description"></p>
@@ -226,6 +256,7 @@
   <script src="/js/api.js"></script>
   <script src="/js/shell.js"></script>
   <script src="/js/keys.js"></script>
+  <script src="/js/portal.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

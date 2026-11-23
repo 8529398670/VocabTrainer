@@ -193,14 +193,14 @@ func ( route *endpoint[ In , Out ] ) handle( c fiber.Ctx , found *declared ) ( e
 		if present == false { continue }
 		value , ok := field.fromText( text )
 		if ok == false {
-			err = answer( c , fiber.StatusBadRequest , field.message( "invalid" ) )
+			err = answerField( c , field.message( "invalid" ) , field.name )
 			return
 		}
 		values[ field.name ] = value
 	}
 	in := new( In )
-	if message , _ := found.input.decode( values , in , false ); message != "" {
-		err = answer( c , fiber.StatusBadRequest , message )
+	if message , field , _ := found.input.decodeField( values , in , false ); message != "" {
+		err = answerField( c , message , field )
 		return
 	}
 	if route.stream != nil {
@@ -228,7 +228,16 @@ func ( route *endpoint[ In , Out ] ) handle( c fiber.Ctx , found *declared ) ( e
 }
 
 func answer( c fiber.Ctx , status int , message string ) ( err error ) {
-	err = c.Status( status ).JSON( fiber.Map{ "error": message } )
+	err = Refuse( c , status , message , "" )
+	return
+}
+
+// answerField is a 400 about one field: field names it, for a caller that
+// marks the field rather than reading the sentence.
+func answerField( c fiber.Ctx , message string , field string ) ( err error ) {
+	body := ErrorBody( fiber.StatusBadRequest , message , CodeInvalid )
+	if field != "" { body[ "field" ] = field }
+	err = c.Status( fiber.StatusBadRequest ).JSON( body )
 	return
 }
 
@@ -383,13 +392,20 @@ func ( field *inputField ) fromText( text string ) ( value any , ok bool ) {
 // the 400 message, or "" when the request is fine. strict_places is MCP's
 // way: every field, path and query ones included, comes from values.
 func ( input *inputType ) decode( values map[string]any , out any , strict_places bool ) ( message string , malformed bool ) {
+	message , _ , malformed = input.decodeField( values , out , strict_places )
+	return
+}
+
+// decodeField is decode, and the one field the 400 is about when it is
+// about one: the unknown one, the missing one, the one that breaks a limit.
+func ( input *inputType ) decodeField( values map[string]any , out any , strict_places bool ) ( message string , field_name string , malformed bool ) {
 	unknown := []string{}
 	for name := range values {
 		if input.byName[ name ] == nil { unknown = append( unknown , name ) }
 	}
 	if len( unknown ) > 0 {
 		sort.Strings( unknown )
-		message , malformed = "unknown field: " + unknown[ 0 ] , true
+		message , field_name , malformed = "unknown field: " + unknown[ 0 ] , unknown[ 0 ] , true
 		return
 	}
 	for _ , field := range input.fields {
@@ -400,7 +416,7 @@ func ( input *inputType ) decode( values map[string]any , out any , strict_place
 		}
 		if present == false {
 			if field.required {
-				message = field.message( "required" )
+				message , field_name = field.message( "required" ) , field.name
 				return
 			}
 			continue
@@ -408,13 +424,13 @@ func ( input *inputType ) decode( values map[string]any , out any , strict_place
 		switch inspect( field.schema , value ) {
 		case wrongType:
 			if field.place != "" && strict_places == false {
-				message = field.message( "invalid" )
+				message , field_name = field.message( "invalid" ) , field.name
 			} else {
 				message , malformed = "malformed request body" , true
 			}
 			return
 		case outOfBounds:
-			message = field.refusal()
+			message , field_name = field.refusal() , field.name
 			return
 		}
 	}

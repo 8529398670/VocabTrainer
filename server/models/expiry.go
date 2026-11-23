@@ -45,7 +45,8 @@ func CreateUserExpiring( store *db.Store , display_name string , role string , e
 
 // SetUserExpiry sets when an account stops working, nil for never. It must
 // be in the future (ErrExpiryPast). The owner never expires
-// (ErrOwnerProtected), and only the owner sets an admin's (mayActOnTx).
+// (ErrOwnerProtected), nobody sets their own (ErrExpirySelf), and only the
+// owner sets an admin's (mayActOnTx).
 func SetUserExpiry( store *db.Store , user_id uint64 , actor_id uint64 , expires_at *time.Time ) ( user *User , err error ) {
 	if expires_at != nil && expires_at.After( time.Now() ) == false {
 		err = ErrExpiryPast
@@ -56,6 +57,12 @@ func SetUserExpiry( store *db.Store , user_id uint64 , actor_id uint64 , expires
 		found := &User{}
 		if tx_err = tx.Get( db.BucketUsers , key , found ); tx_err != nil { return }
 		if tx_err = refuseOwnerTx( tx , user_id ); tx_err != nil { return }
+		// Your own expiry is set for you: an admin could otherwise clear the
+		// one the owner gave them (the owner's own never expires, above).
+		if actor_id != 0 && actor_id == user_id {
+			tx_err = ErrExpirySelf
+			return
+		}
 		if tx_err = mayActOnTx( tx , actor_id , found ); tx_err != nil { return }
 		found.ExpiresAt = nil
 		if expires_at != nil {

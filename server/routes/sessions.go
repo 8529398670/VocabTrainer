@@ -83,9 +83,13 @@ func ( handlers *Handlers ) listMySessions( c fiber.Ctx , in *Page ) ( reply *se
 	return
 }
 
-// sessionsTarget reads whose sessions an admin route is asking about. Nobody but
-// the owner reaches the owner's, the same rule as revoking the owner's access.
-func ( handlers *Handlers ) sessionsTarget( c fiber.Ctx , user_id uint64 ) ( by_owner bool , refused *refusal ) {
+// sessionsTarget reads whose sessions an admin route is asking about, on the
+// ladder every account route follows (models.MayActOn): nobody reaches the
+// owner's, only the owner reaches another admin's (a service account counts as
+// one), and any admin reaches an ordinary or viewer account's, or their own.
+// shows_ip is whether the caller sees addresses: the owner, and the owner's
+// service account (ProjectPortal), which matches people across apps by them.
+func ( handlers *Handlers ) sessionsTarget( c fiber.Ctx , user_id uint64 ) ( shows_ip bool , refused *refusal ) {
 	if _ , get_err := models.GetUser( handlers.Store , user_id ); get_err != nil {
 		refused = refuse( fiber.StatusNotFound , "no such user" )
 		return
@@ -95,10 +99,9 @@ func ( handlers *Handlers ) sessionsTarget( c fiber.Ctx , user_id uint64 ) ( by_
 		refused = internalFailure( owner_err )
 		return
 	}
-	by_owner = security.UserFrom( c ).ID == owner_id
-	if user_id == owner_id && by_owner == false {
-		refused = refuse( fiber.StatusForbidden , "the owner account's sessions are the owner's own" )
-	}
+	caller := security.UserFrom( c )
+	if refused = actOnRefusal( models.MayActOn( handlers.Store , caller.ID , user_id ) , "see the sessions of" ); refused != nil { return }
+	shows_ip = caller.ID == owner_id || caller.IsService()
 	return
 }
 
@@ -108,16 +111,19 @@ type userSessionsRequest struct {
 }
 
 // listUserSessions shows an admin where an account is signed in, for ending one
-// device rather than everything with revoke-access. Addresses are for the owner
-// only, as in the activity log, which keeps them from other admins too.
+// device rather than everything with revoke-access, and ProjectPortal who is
+// who across apps (portal contract v3, admin_sessions). Addresses are for the
+// owner and the owner's service account only: the activity log keeps them from
+// other admins too. What the owner calls an address stays the owner's.
 //
 // @route("GET /api/admin/users/{user_id}/sessions", summary="An account's signed-in devices",
 //     tag="Admin", role=ADMIN, feature="sessions", errors=(404,),
 //     description="Where an account is signed in: every session, with when it started and was last seen. "
-//         "Addresses are shown to the owner only, and only the owner sees the owner's.",
+//         "Addresses are shown to the owner and service accounts only. Nobody sees the owner's, and only the "
+//         "owner sees another admin's.",
 // )
 func ( handlers *Handlers ) listUserSessions( c fiber.Ctx , in *userSessionsRequest ) ( reply *sessionsReply , err error ) {
-	by_owner , refused := handlers.sessionsTarget( c , in.UserID )
+	shows_ip , refused := handlers.sessionsTarget( c , in.UserID )
 	if refused != nil {
 		err = refused
 		return
@@ -127,7 +133,7 @@ func ( handlers *Handlers ) listUserSessions( c fiber.Ctx , in *userSessionsRequ
 	rows := []sessionRow{}
 	for _ , session := range sessions {
 		row := newSessionRow( session , currentSessionID( c ) )
-		if by_owner == false { row.IP = "" }
+		if shows_ip == false { row.IP = "" }
 		rows = append( rows , row )
 	}
 	reply = &sessionsReply{}

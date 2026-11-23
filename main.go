@@ -115,6 +115,10 @@ var (
 	version   = "dev"
 	commit    = "unknown"
 	buildDate = "unknown"
+	// The skill and its commit this app was scaffolded from, read from
+	// .skill-origin.yaml by the same scripts. Empty without that file.
+	skill       = ""
+	skillCommit = ""
 )
 
 func main() {
@@ -238,6 +242,7 @@ func run() ( err error ) {
 
 	guard := security.New( store , settings )
 	handlers := routes.New( store , settings , guard , lang , static_server , version )
+	handlers.Skill , handlers.SkillCommit = skill , skillCommit
 	// Tell open pages about a change to the frontend (server.live_reload).
 	// See server/livereload.
 	if cfg.LiveReloads( version , bundle.StaticDir ) {

@@ -106,6 +106,7 @@ func LoadSession( store *db.Store , credential string ) ( session *Session , use
 
 	loaded_user , err := GetUser( store , found.UserID )
 	if err != nil || loaded_user.Disabled() { return }
+	if keyBornSessionDead( store , found ) { return }
 
 	found.ID = session_id
 	session , user = found , loaded_user

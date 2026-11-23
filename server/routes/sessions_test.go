@@ -568,3 +568,38 @@ func TestTheSessionCookieIsHostPrefixedWhenSecure( t *testing.T ) {
 	if client.signedIn( t ) == false { t.Fatal( "the __Host- cookie does not sign in" ) }
 	if ( &browser{ fixture: fixture , cookie: "session=" + found.Value } ).signedIn( t ) { t.Fatal( "the plain name still signs in" ) }
 }
+
+// The ladder on reading an account's devices (portal contract v3,
+// admin_sessions): nobody reads the owner's, only the owner reads another
+// admin's, any admin reads an ordinary account's, and everyone reads their own.
+func TestReadingSessionsFollowsTheLadder( t *testing.T ) {
+	fixture := newAuthFixture( t )
+	peer , _ := models.CreateUser( fixture.store , "Peer" , models.RoleAdmin )
+	other , _ := models.CreateUser( fixture.store , "Other" , models.RoleAdmin )
+	owner := fixture.signIn( t , fixture.owner.ID )
+	admin := fixture.signIn( t , peer.ID )
+	fixture.signIn( t , other.ID )
+	fixture.signIn( t , fixture.alice.ID )
+	path := func( id uint64 ) string { return fmt.Sprintf( "/api/admin/users/%d/sessions" , id ) }
+
+	for _ , each := range []struct {
+		who    *browser
+		name   string
+		target uint64
+		status int
+		code   string
+	}{
+		{ admin , "a peer on the owner" , fixture.owner.ID , http.StatusForbidden , "owner_protected" },
+		{ admin , "a peer on another admin" , other.ID , http.StatusForbidden , "owner_required" },
+		{ admin , "a peer on an ordinary account" , fixture.alice.ID , http.StatusOK , "" },
+		{ admin , "a peer on itself" , peer.ID , http.StatusOK , "" },
+		{ owner , "the owner on an admin" , other.ID , http.StatusOK , "" },
+		{ owner , "the owner on itself" , fixture.owner.ID , http.StatusOK , "" },
+		{ owner , "no such account" , 9999 , http.StatusNotFound , "not_found" },
+	} {
+		status , reply := each.who.do( t , http.MethodGet , path( each.target ) , nil )
+		if status != each.status || ( each.code != "" && reply[ "code" ] != each.code ) {
+			t.Errorf( "%s: %d %v, want %d %s" , each.name , status , reply , each.status , each.code )
+		}
+	}
+}

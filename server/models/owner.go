@@ -44,6 +44,9 @@ var (
 	// ErrNotAdmin is the refusal for making a non-admin, or a disabled
 	// admin, the owner.
 	ErrNotAdmin = errors.New( "the owner must be an enabled admin" )
+	// ErrServiceAccount refuses a way in, or the owner's seat, to a service
+	// account (KindService): it has API keys only, and is never signed into.
+	ErrServiceAccount = errors.New( "a service account has API keys only, and is never signed into" )
 
 	// ErrDeleteSelf is the refusal for deleting your own account, which
 	// would sign you out with no record left to sign back in to.
@@ -52,6 +55,10 @@ var (
 	// ErrRoleSelf is the refusal for changing your own role: it could only
 	// take your own admin rights away, or sign you out.
 	ErrRoleSelf = errors.New( "you cannot change your own role" )
+
+	// ErrExpirySelf is the refusal for setting your own account's expiry:
+	// whoever set it would be undone by the person it was meant to stop.
+	ErrExpirySelf = errors.New( "you cannot change when your own account expires" )
 
 )
 
@@ -173,6 +180,10 @@ func TransferOwner( store *db.Store , user_id uint64 ) ( err error ) {
 	err = store.Write( func( tx *db.Tx ) ( tx_err error ) {
 		target := &User{}
 		if tx_err = tx.Get( db.BucketUsers , encryption.Uint64ToBytes( user_id ) , target ); tx_err != nil { return }
+		if target.IsService() {
+			tx_err = ErrServiceAccount
+			return
+		}
 		if target.IsAdmin() == false || target.Disabled() {
 			tx_err = ErrNotAdmin
 			return

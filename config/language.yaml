@@ -270,6 +270,7 @@ admin:
   status_expired: "expired"
   # {date} is when the account stops working.
   expires_note: "Account expires {date}"
+  service_badge: "Service"
   reissue_button: "New link"
   disable_button: "Disable"
   enable_button: "Enable"
@@ -437,6 +438,21 @@ docs:
   back: "Back to the app"
   loading: "Loading..."
   failed: "The reference could not be loaded. Sign in, then try again."
+
+# The ProjectPortal card on the API keys screen (static/js/portal.js).
+portal:
+  heading: "ProjectPortal"
+  description: "Connect ProjectPortal through an account of its own, never yours. Its key may make keys for the accounts it runs, and never signs anyone in. Only you can change that account or cut it off."
+  name_label: "Account name"
+  days_label: "Key lifetime (days)"
+  connect_button: "Connect"
+  paste_hint: "Paste it into ProjectPortal: Catalog → this app → Admin key"
+  status_heading: "Its keys"
+  none: "Not connected."
+  expires: "Expires {date}"
+  never_expires: "Never expires"
+  disconnect_button: "Disconnect"
+  disconnect_confirm: "Disconnect ProjectPortal? Its keys stop working now, and so does every key and login link they made."
 
 # The page a browser gets when a page load fails (404, 429, 500 and so on).
 # The server renders this, so it works when the app itself cannot load.

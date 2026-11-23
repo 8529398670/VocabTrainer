@@ -47,6 +47,12 @@ type SignIn struct {
 // startSignInTx stores a session, or a challenge if this account has to give
 // a code.
 func startSignInTx( tx *db.Tx , user *User , rules SignInRules ) ( signed *SignIn , err error ) {
+	// Every way in comes through here, so a service account is refused once
+	// for all of them.
+	if user.IsService() {
+		err = ErrServiceAccount
+		return
+	}
 	session_id , credential , session := newSession( user.ID , rules.SessionTTL )
 	session.MintedByKey = rules.MintedByKey
 	session.IssuedBy = rules.IssuedBy
